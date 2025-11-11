@@ -1,0 +1,30 @@
+mcp:
+  host: "localhost"
+  port: 8282
+app:
+  port: 8181
+  codegraph: false
+  gopls: "${BOT_GO_PATH}/scripts/gopls.sh"
+  python: "${BOT_GO_PATH}/scripts/pylsp.sh"
+  num_file_threads: 2
+neo4j:
+  uri: "bolt://localhost:7687"
+  username: ""
+  password: ""
+kuzu:
+  path: "data/kuzu.db"
+qdrant:
+  host: "localhost"
+  port: 6334  # gRPC port (6333 is HTTP/REST)
+  apikey: ""
+ollama:
+  url: "http://localhost:11434"
+  apikey: ""
+  model: "qwen3-embedding:0.6b"  # qwen3-embedding:0.6b produces 1024 dimensions
+  # model: "nomic-embed-text"  # Options: nomic-embed-text (768d), all-minilm (384d), mxbai-embed-large (1024d)
+  dimension: 1024  # Must match the model's output dimension
+chunking:
+  # Minimum number of lines for conditionals/loops to be stored as separate chunks
+  # Small conditionals/loops will be included in their parent function but not stored separately
+  min_conditional_lines: 8
+  min_loop_lines: 8

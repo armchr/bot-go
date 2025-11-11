@@ -1,0 +1,38 @@
+{
+  "test_case_id": "02",
+  "name": "TODO/FIXME Comment Detection",
+  "description": "Identical code checking for TODO/FIXME comments in different language analyzers. Only difference is comment text.",
+  "type": "similar",
+  "similarity_level": "very_high",
+  "snippets": [
+    {
+      "file": "snippet_go_analyzer.go",
+      "original_location": {
+        "repo": "armchair",
+        "file_path": "code_reviewer/internal/analyzer/static/go_analyzer.go",
+        "start_line": 108,
+        "end_line": 120,
+        "function_name": "analyzeLineByLine"
+      },
+      "language": "go",
+      "description": "TODO/FIXME detection in Go analyzer"
+    },
+    {
+      "file": "snippet_python_analyzer.go",
+      "original_location": {
+        "repo": "armchair",
+        "file_path": "code_reviewer/internal/analyzer/static/python_analyzer.go",
+        "start_line": 78,
+        "end_line": 90,
+        "function_name": "Analyze"
+      },
+      "language": "go",
+      "description": "TODO/FIXME detection in Python analyzer"
+    }
+  ],
+  "similar_pairs": [
+    ["snippet_go_analyzer.go", "snippet_python_analyzer.go"]
+  ],
+  "different_pairs": [],
+  "notes": "Nearly identical - only difference is comment text ('Check for TODO/FIXME comments' vs 'Check for TODO/FIXME'). Same severity, category, message, and recommendation."
+}

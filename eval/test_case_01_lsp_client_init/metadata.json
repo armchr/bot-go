@@ -1,0 +1,52 @@
+{
+  "test_case_id": "01",
+  "name": "LSP Client Initialization Pattern",
+  "description": "Three near-identical constructor functions for different language server clients. All follow the same pattern: create base client, check error, wrap in struct, return.",
+  "type": "similar",
+  "similarity_level": "high",
+  "snippets": [
+    {
+      "file": "snippet_go_client.go",
+      "original_location": {
+        "repo": "bot-go",
+        "file_path": "pkg/lsp/go_client.go",
+        "start_line": 18,
+        "end_line": 28,
+        "function_name": "NewGoLanguageServerClient"
+      },
+      "language": "go",
+      "description": "Constructor for Go LSP client"
+    },
+    {
+      "file": "snippet_python_client.go",
+      "original_location": {
+        "repo": "bot-go",
+        "file_path": "pkg/lsp/python_client.go",
+        "start_line": 17,
+        "end_line": 27,
+        "function_name": "NewPythonLanguageServerClient"
+      },
+      "language": "go",
+      "description": "Constructor for Python LSP client"
+    },
+    {
+      "file": "snippet_typescript_client.go",
+      "original_location": {
+        "repo": "bot-go",
+        "file_path": "pkg/lsp/ts_client.go",
+        "start_line": 16,
+        "end_line": 26,
+        "function_name": "NewTypeScriptLanguageServerClient"
+      },
+      "language": "go",
+      "description": "Constructor for TypeScript LSP client"
+    }
+  ],
+  "similar_pairs": [
+    ["snippet_go_client.go", "snippet_python_client.go"],
+    ["snippet_go_client.go", "snippet_typescript_client.go"],
+    ["snippet_python_client.go", "snippet_typescript_client.go"]
+  ],
+  "different_pairs": [],
+  "notes": "Only differences: logger message, config field accessed (Gopls vs Python vs hardcoded string), and struct type names. Structure is identical."
+}

@@ -1,0 +1,38 @@
+{
+  "test_case_id": "05",
+  "name": "Different Algorithms - Concurrent File Walking vs Diff Parsing",
+  "description": "Completely different problem domains: concurrent systems programming vs text parsing",
+  "type": "different",
+  "similarity_level": "none",
+  "snippets": [
+    {
+      "file": "snippet_concurrent_walk.go",
+      "original_location": {
+        "repo": "bot-go",
+        "file_path": "internal/util/walk.go",
+        "start_line": 27,
+        "end_line": 66,
+        "function_name": "WalkDirTree"
+      },
+      "language": "go",
+      "description": "Concurrent directory traversal using worker pool pattern with channels, goroutines, and WaitGroup"
+    },
+    {
+      "file": "snippet_diff_parser.go",
+      "original_location": {
+        "repo": "armchair",
+        "file_path": "code_reviewer/internal/parser/diff.go",
+        "start_line": 12,
+        "end_line": 51,
+        "function_name": "ParseDiff, convertFileToChange"
+      },
+      "language": "go",
+      "description": "Sequential parsing of unified diff format with gitdiff library, handling file paths and operations"
+    }
+  ],
+  "similar_pairs": [],
+  "different_pairs": [
+    ["snippet_concurrent_walk.go", "snippet_diff_parser.go"]
+  ],
+  "notes": "Completely different domains: One is concurrent systems programming with Go primitives (channels, mutexes, goroutines), the other is sequential text parsing dealing with diff format conventions. No semantic overlap."
+}

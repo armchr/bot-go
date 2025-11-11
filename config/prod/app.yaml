@@ -1,0 +1,14 @@
+mcp:
+  host: "localhost"
+  port: 8282
+app:
+  port: 8181
+  codegraph: false
+  gopls: "./scripts/gopls.sh"
+  python: "./scripts/pylsp.sh"
+neo4j:
+  uri: "bolt://host.docker.internal:7687"
+  username: ""
+  password: ""
+kuzu:
+  path: "/app/data/kuzu.db"

@@ -1,0 +1,38 @@
+{
+  "test_case_id": "03",
+  "name": "Type Conversion Helper Functions",
+  "description": "Two nearly identical type conversion functions with same structure. Only difference is the target type (int64 vs int32).",
+  "type": "similar",
+  "similarity_level": "very_high",
+  "snippets": [
+    {
+      "file": "snippet_convert_int64.go",
+      "original_location": {
+        "repo": "bot-go",
+        "file_path": "internal/service/code_graph.go",
+        "start_line": 737,
+        "end_line": 756,
+        "function_name": "convertToInt64"
+      },
+      "language": "go",
+      "description": "Converts various integer types to int64"
+    },
+    {
+      "file": "snippet_convert_int32.go",
+      "original_location": {
+        "repo": "bot-go",
+        "file_path": "internal/service/code_graph.go",
+        "start_line": 758,
+        "end_line": 777,
+        "function_name": "convertToInt32"
+      },
+      "language": "go",
+      "description": "Converts various integer types to int32"
+    }
+  ],
+  "similar_pairs": [
+    ["snippet_convert_int64.go", "snippet_convert_int32.go"]
+  ],
+  "different_pairs": [],
+  "notes": "Identical structure with type switch handling int64, int32, int, uint64, uint32, uint. Only difference is return type and conversion targets. Could be refactored into a generic function."
+}

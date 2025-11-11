@@ -1,0 +1,38 @@
+{
+  "test_case_id": "07",
+  "name": "Different External Integrations - LLM vs Graph Database",
+  "description": "Completely different external system integrations with different concerns",
+  "type": "different",
+  "similarity_level": "none",
+  "snippets": [
+    {
+      "file": "snippet_llm_integration.go",
+      "original_location": {
+        "repo": "armchair",
+        "file_path": "code_reviewer/internal/analyzer/llm/llm.go",
+        "start_line": 40,
+        "end_line": 74,
+        "function_name": "Analyze"
+      },
+      "language": "go",
+      "description": "LLM integration with retry logic, prompt building, and response parsing for AI-based code analysis"
+    },
+    {
+      "file": "snippet_graph_db_query.go",
+      "original_location": {
+        "repo": "bot-go",
+        "file_path": "internal/service/kuzu_db.go",
+        "start_line": 346,
+        "end_line": 380,
+        "function_name": "handleFileNumberMerge"
+      },
+      "language": "go",
+      "description": "Graph database atomic increment operation using Cypher queries for state management"
+    }
+  ],
+  "similar_pairs": [],
+  "different_pairs": [
+    ["snippet_llm_integration.go", "snippet_graph_db_query.go"]
+  ],
+  "notes": "Completely different domains: External AI service integration with natural language prompts vs local graph database queries with Cypher. One deals with retry logic and text parsing, the other with atomic operations and type conversions."
+}

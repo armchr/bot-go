@@ -1,0 +1,38 @@
+{
+  "test_case_id": "06",
+  "name": "Debug Print Statement Detection",
+  "description": "Similar pattern detecting debug print statements across different languages (Python print vs JavaScript console.log)",
+  "type": "similar",
+  "similarity_level": "high",
+  "snippets": [
+    {
+      "file": "snippet_python_print.go",
+      "original_location": {
+        "repo": "armchair",
+        "file_path": "code_reviewer/internal/analyzer/static/python_analyzer.go",
+        "start_line": 50,
+        "end_line": 62,
+        "function_name": "Analyze"
+      },
+      "language": "go",
+      "description": "Detects Python print() statements as possible debug code"
+    },
+    {
+      "file": "snippet_js_console.go",
+      "original_location": {
+        "repo": "armchair",
+        "file_path": "code_reviewer/internal/analyzer/static/js_analyzer.go",
+        "start_line": 50,
+        "end_line": 62,
+        "function_name": "Analyze"
+      },
+      "language": "go",
+      "description": "Detects JavaScript console.log/console.debug statements as debug code"
+    }
+  ],
+  "similar_pairs": [
+    ["snippet_python_print.go", "snippet_js_console.go"]
+  ],
+  "different_pairs": [],
+  "notes": "Same pattern for different languages - detecting debug output statements. Both use Minor severity, CodeQuality category, and recommend proper logging. Minor differences in string checks and recommendation text."
+}

@@ -1,0 +1,38 @@
+{
+  "test_case_id": "04",
+  "name": "Different Search Methods - Bloom Filter vs Vector Search",
+  "description": "Completely different search approaches: probabilistic membership testing (bloom filter) vs semantic similarity search (vector embeddings)",
+  "type": "different",
+  "similarity_level": "none",
+  "snippets": [
+    {
+      "file": "snippet_bloom_filter.go",
+      "original_location": {
+        "repo": "bot-go",
+        "file_path": "internal/util/bloom_filter.go",
+        "start_line": 92,
+        "end_line": 112,
+        "function_name": "Add, Test"
+      },
+      "language": "go",
+      "description": "Bloom filter operations for fast membership testing with probabilistic false positives"
+    },
+    {
+      "file": "snippet_vector_search.go",
+      "original_location": {
+        "repo": "bot-go",
+        "file_path": "internal/service/qdrant_db.go",
+        "start_line": 155,
+        "end_line": 198,
+        "function_name": "SearchSimilar"
+      },
+      "language": "go",
+      "description": "Vector similarity search using embeddings and cosine distance in Qdrant"
+    }
+  ],
+  "similar_pairs": [],
+  "different_pairs": [
+    ["snippet_bloom_filter.go", "snippet_vector_search.go"]
+  ],
+  "notes": "Completely different algorithms and use cases: Bloom filter is for fast 'does this exist?' checks (probabilistic), Vector search is for 'what is semantically similar?' queries (deterministic similarity scores). Different data structures, different purposes."
+}

@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  memgraph:
+    image: memgraph/memgraph:latest
+    ports:
+      - "7687:7687"
+      - "7444:7444"  # Memgraph Lab (optional web interface)
+    environment:
+      - MEMGRAPH_LOG_LEVEL=WARNING
+    volumes:
+      - memgraph_data:/var/lib/memgraph
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mg_client", "--host", "localhost", "--port", "7687", "--username", "", "--password", "", "--use-ssl=false", "-e", "RETURN 1;"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  armchair:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    image: armchair:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./source.yaml:/app/source.yaml:ro
+      - ./logs:/app/logs
+    environment:
+      - GIN_MODE=release
+      - NEO4J_URI=bolt://memgraph:7687
+      - NEO4J_USERNAME=
+      - NEO4J_PASSWORD=
+    depends_on:
+      memgraph:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  memgraph_data:
