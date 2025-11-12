@@ -26,6 +26,14 @@ func SetupRouter(repoController *controller.RepoController, mcpServer *mcp.CodeG
 		v1.POST("/functionDependencies", repoController.GetFunctionDependencies)
 		v1.POST("/processDirectory", repoController.ProcessDirectory)
 		v1.POST("/searchSimilarCode", repoController.SearchSimilarCode)
+
+		// N-gram endpoints
+		v1.POST("/processNGram", repoController.ProcessNGram)
+		v1.POST("/getNGramStats", repoController.GetNGramStats)
+		v1.POST("/getFileEntropy", repoController.GetFileEntropy)
+		v1.POST("/analyzeCode", repoController.AnalyzeCode)
+		v1.POST("/calculateZScore", repoController.CalculateZScore)
+
 		v1.GET("/health", func(c *gin.Context) {
 			c.JSON(200, gin.H{
 				"status": "healthy",

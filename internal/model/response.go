@@ -302,3 +302,100 @@ type SimilarCodeResult struct {
 	QueryChunkIndex int        `json:"query_chunk_index"` // Index of the input chunk that matched this result (0-based)
 	Code            string     `json:"code,omitempty"`    // Actual code content from file (if include_code is true)
 }
+
+// N-gram API models
+
+type ProcessNGramRequest struct {
+	RepoName string `json:"repo_name" binding:"required"`
+	N        int    `json:"n"`        // N-gram size (default: 3)
+	Override bool   `json:"override"` // Force rebuild even if saved model exists
+}
+
+type ProcessNGramResponse struct {
+	RepoName       string  `json:"repo_name"`
+	N              int     `json:"n"`
+	TotalFiles     int     `json:"total_files"`
+	TotalTokens    int     `json:"total_tokens"`
+	VocabularySize int     `json:"vocabulary_size"`
+	AverageEntropy float64 `json:"average_entropy"`
+	Success        bool    `json:"success"`
+	Message        string  `json:"message,omitempty"`
+}
+
+type GetNGramStatsRequest struct {
+	RepoName string `json:"repo_name" binding:"required"`
+}
+
+type GetNGramStatsResponse struct {
+	RepoName        string         `json:"repo_name"`
+	N               int            `json:"n"`
+	TotalFiles      int            `json:"total_files"`
+	TotalTokens     int            `json:"total_tokens"`
+	VocabularySize  int            `json:"vocabulary_size"`
+	NGramCount      int            `json:"ngram_count"`
+	AverageEntropy  float64        `json:"average_entropy"`
+	LanguageCounts  map[string]int `json:"language_counts"`
+}
+
+type GetFileEntropyRequest struct {
+	RepoName string `json:"repo_name" binding:"required"`
+	FilePath string `json:"file_path" binding:"required"`
+}
+
+type GetFileEntropyResponse struct {
+	RepoName string  `json:"repo_name"`
+	FilePath string  `json:"file_path"`
+	Entropy  float64 `json:"entropy"`
+}
+
+type AnalyzeCodeRequest struct {
+	RepoName string `json:"repo_name" binding:"required"`
+	Language string `json:"language" binding:"required"`
+	Code     string `json:"code" binding:"required"`
+}
+
+type AnalyzeCodeResponse struct {
+	RepoName   string  `json:"repo_name"`
+	Language   string  `json:"language"`
+	TokenCount int     `json:"token_count"`
+	Entropy    float64 `json:"entropy"`
+	Perplexity float64 `json:"perplexity"`
+}
+
+type CalculateZScoreRequest struct {
+	RepoName string `json:"repo_name" binding:"required"`
+	Language string `json:"language" binding:"required"`
+	Code     string `json:"code" binding:"required"`
+}
+
+type CalculateZScoreResponse struct {
+	RepoName       string               `json:"repo_name"`
+	Language       string               `json:"language"`
+	TokenCount     int                  `json:"token_count"`
+	Entropy        float64              `json:"entropy"`
+	ZScore         float64              `json:"z_score"`
+	CorpusStats    ZScoreCorpusStats    `json:"corpus_stats"`
+	NGramScores    []NGramScore         `json:"ngram_scores"`
+	Interpretation ZScoreInterpretation `json:"interpretation"`
+}
+
+type ZScoreCorpusStats struct {
+	MeanEntropy   float64 `json:"mean_entropy"`
+	StdDevEntropy float64 `json:"std_dev_entropy"`
+	MinEntropy    float64 `json:"min_entropy"`
+	MaxEntropy    float64 `json:"max_entropy"`
+	FileCount     int     `json:"file_count"`
+}
+
+type NGramScore struct {
+	NGram       []string `json:"ngram"`
+	Probability float64  `json:"probability"`
+	LogProb     float64  `json:"log_prob"`
+	Entropy     float64  `json:"entropy"`
+}
+
+type ZScoreInterpretation struct {
+	Level       string `json:"level"`        // "very_low", "low", "normal", "high", "very_high"
+	Description string `json:"description"`
+	Percentile  float64 `json:"percentile"`  // Approximate percentile in corpus
+}

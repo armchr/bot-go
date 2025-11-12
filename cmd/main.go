@@ -119,7 +119,15 @@ func main() {
 		logger.Info("Code chunk service disabled (Qdrant or Ollama not configured)")
 	}
 
-	repoController := controller.NewRepoController(repoService, chunkService, logger)
+	// Initialize NGramService
+	ngramService, err := service.NewNGramService(logger)
+	if err != nil {
+		logger.Warn("Failed to initialize N-gram service", zap.Error(err))
+	} else {
+		logger.Info("N-gram service initialized successfully")
+	}
+
+	repoController := controller.NewRepoController(repoService, chunkService, ngramService, logger)
 	mcpServer := mcp.NewCodeGraphServer(repoService, cfg, logger)
 
 	router := handler.SetupRouter(repoController, mcpServer, logger)
