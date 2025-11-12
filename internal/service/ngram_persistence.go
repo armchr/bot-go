@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bot-go/internal/service/tokenizer"
 	"encoding/gob"
 	"fmt"
 	"os"
@@ -10,12 +11,10 @@ import (
 	"go.uber.org/zap"
 )
 
-// SerializableNGramModel is a serializable representation of the n-gram model
+// SerializableNGramModel is a serializable representation of the n-gram model (always Trie+Bloom)
 type SerializableNGramModel struct {
 	Version       string                 // Format version
 	N             int                    // N-gram size
-	UseTrie       bool                   // Whether this is a trie-based model
-	UseBloom      bool                   // Whether bloom filter was used
 	TotalTokens   int64                  // Total tokens processed
 	CreatedAt     time.Time              // When the model was created
 	RepoName      string                 // Repository name
@@ -24,7 +23,7 @@ type SerializableNGramModel struct {
 	// File-level metadata (for GetStats)
 	FileMetadata  map[string]FileMetadata // path -> metadata
 
-	// For trie-based models
+	// Trie-based model data
 	TokenToID     map[string]uint32      // String interning map
 	IDToToken     []string               // Reverse lookup
 	TrieNodes     []SerializableTrieNode // Flattened trie structure
@@ -36,11 +35,6 @@ type SerializableNGramModel struct {
 	NGramTrieTotalTokens    int64  // Total tokens in ngramTrie
 	ContextTrieTotalNGrams  int64  // Total n-grams in contextTrie
 	ContextTrieTotalTokens  int64  // Total tokens in contextTrie
-
-	// For map-based models (fallback)
-	Vocabulary    map[string]int64       // token -> frequency
-	NGramCounts   map[string]int64       // n-gram -> count
-	ContextCounts map[string]int64       // context -> count
 }
 
 // FileMetadata stores minimal file information for statistics
@@ -84,13 +78,11 @@ func (p *NGramPersistence) GetModelPath(repoName string) string {
 	return filepath.Join(p.outputDir, fmt.Sprintf("%s_ngram.gob", repoName))
 }
 
-// SaveCorpusManager saves a corpus manager to disk
+// SaveCorpusManager saves a corpus manager to disk (always Trie+Bloom)
 func (p *NGramPersistence) SaveCorpusManager(cm *CorpusManager, repoName string) error {
 	model := &SerializableNGramModel{
-		Version:      "1.0",
+		Version:      "2.0",
 		N:            cm.n,
-		UseTrie:      cm.useTrie,
-		UseBloom:     cm.useBloom,
 		CreatedAt:    time.Now(),
 		RepoName:     repoName,
 		FileMetadata: make(map[string]FileMetadata),
@@ -108,15 +100,9 @@ func (p *NGramPersistence) SaveCorpusManager(cm *CorpusManager, repoName string)
 	}
 	cm.mu.RUnlock()
 
-	// Serialize based on model type
-	if cm.useTrie && cm.globalTrieModel != nil {
-		if err := p.serializeTrieModel(cm.globalTrieModel, model); err != nil {
-			return fmt.Errorf("failed to serialize trie model: %w", err)
-		}
-	} else if cm.globalModel != nil {
-		p.serializeMapModel(cm.globalModel, model)
-	} else {
-		return fmt.Errorf("no global model found")
+	// Serialize trie model
+	if err := p.serializeTrieModel(cm.globalModel, model); err != nil {
+		return fmt.Errorf("failed to serialize trie model: %w", err)
 	}
 
 	// Save to file
@@ -129,14 +115,13 @@ func (p *NGramPersistence) SaveCorpusManager(cm *CorpusManager, repoName string)
 		zap.String("repo", repoName),
 		zap.String("path", modelPath),
 		zap.Int("n", model.N),
-		zap.Bool("trie", model.UseTrie),
 		zap.Int64("tokens", model.TotalTokens))
 
 	return nil
 }
 
-// LoadCorpusManager loads a corpus manager from disk
-func (p *NGramPersistence) LoadCorpusManager(repoName string, tokenizer *TokenizerRegistry, logger *zap.Logger) (*CorpusManager, error) {
+// LoadCorpusManager loads a corpus manager from disk (always Trie+Bloom)
+func (p *NGramPersistence) LoadCorpusManager(repoName string, tokenizerRegistry *tokenizer.TokenizerRegistry, logger *zap.Logger) (*CorpusManager, error) {
 	modelPath := p.GetModelPath(repoName)
 
 	// Check if file exists
@@ -156,8 +141,8 @@ func (p *NGramPersistence) LoadCorpusManager(repoName string, tokenizer *Tokeniz
 		smoother = NewWittenBellSmoother()
 	}
 
-	// Create corpus manager
-	cm := NewCorpusManagerWithOptions(model.N, smoother, tokenizer, model.UseTrie, model.UseBloom, logger)
+	// Create corpus manager (always Trie+Bloom)
+	cm := NewCorpusManager(model.N, smoother, tokenizerRegistry, logger)
 
 	// Restore file metadata
 	cm.mu.Lock()
@@ -172,20 +157,15 @@ func (p *NGramPersistence) LoadCorpusManager(repoName string, tokenizer *Tokeniz
 	}
 	cm.mu.Unlock()
 
-	// Deserialize model
-	if model.UseTrie {
-		if err := p.deserializeTrieModel(model, cm); err != nil {
-			return nil, fmt.Errorf("failed to deserialize trie model: %w", err)
-		}
-	} else {
-		p.deserializeMapModel(model, cm)
+	// Deserialize trie model
+	if err := p.deserializeTrieModel(model, cm); err != nil {
+		return nil, fmt.Errorf("failed to deserialize trie model: %w", err)
 	}
 
 	p.logger.Info("Loaded n-gram model",
 		zap.String("repo", repoName),
 		zap.String("path", modelPath),
 		zap.Int("n", model.N),
-		zap.Bool("trie", model.UseTrie),
 		zap.Int64("tokens", model.TotalTokens))
 
 	return cm, nil
@@ -232,28 +212,6 @@ func (p *NGramPersistence) serializeTrieModel(trieModel *NGramModelTrie, target 
 	return nil
 }
 
-// serializeMapModel serializes a map-based model
-func (p *NGramPersistence) serializeMapModel(mapModel *NGramModel, target *SerializableNGramModel) {
-	mapModel.mu.RLock()
-	defer mapModel.mu.RUnlock()
-
-	target.TotalTokens = mapModel.totalTokens
-	target.SmootherName = mapModel.smoother.Name()
-	target.Vocabulary = make(map[string]int64)
-	target.NGramCounts = make(map[string]int64)
-	target.ContextCounts = make(map[string]int64)
-
-	for k, v := range mapModel.vocabulary {
-		target.Vocabulary[k] = v
-	}
-	for k, v := range mapModel.ngramCounts {
-		target.NGramCounts[k] = v
-	}
-	for k, v := range mapModel.contextCounts {
-		target.ContextCounts[k] = v
-	}
-}
-
 // flattenTrie converts a trie to a flat array for serialization
 func (p *NGramPersistence) flattenTrie(root *TrieNode) []SerializableTrieNode {
 	if root == nil {
@@ -295,41 +253,26 @@ func (p *NGramPersistence) flattenTrie(root *TrieNode) []SerializableTrieNode {
 
 // deserializeTrieModel reconstructs a trie-based model
 func (p *NGramPersistence) deserializeTrieModel(model *SerializableNGramModel, cm *CorpusManager) error {
-	if cm.globalTrieModel == nil {
-		return fmt.Errorf("corpus manager has no trie model")
-	}
-
 	// Restore string interning
-	cm.globalTrieModel.vocabulary.tokenToID = model.TokenToID
-	cm.globalTrieModel.vocabulary.idToToken = model.IDToToken
-	cm.globalTrieModel.vocabulary.nextID = uint32(len(model.IDToToken))
+	cm.globalModel.vocabulary.tokenToID = model.TokenToID
+	cm.globalModel.vocabulary.idToToken = model.IDToToken
+	cm.globalModel.vocabulary.nextID = uint32(len(model.IDToToken))
 
 	// Restore tries
-	cm.globalTrieModel.ngramTrie.root = p.reconstructTrie(model.TrieNodes)
-	cm.globalTrieModel.vocabulary.root = p.reconstructTrie(model.VocabNodes)
-	cm.globalTrieModel.contextTrie.root = p.reconstructTrie(model.ContextNodes)
+	cm.globalModel.ngramTrie.root = p.reconstructTrie(model.TrieNodes)
+	cm.globalModel.vocabulary.root = p.reconstructTrie(model.VocabNodes)
+	cm.globalModel.contextTrie.root = p.reconstructTrie(model.ContextNodes)
 
 	// Restore trie counters
-	cm.globalTrieModel.ngramTrie.totalNGrams = model.NGramTrieTotalNGrams
-	cm.globalTrieModel.ngramTrie.totalTokens = model.NGramTrieTotalTokens
-	cm.globalTrieModel.contextTrie.totalNGrams = model.ContextTrieTotalNGrams
-	cm.globalTrieModel.contextTrie.totalTokens = model.ContextTrieTotalTokens
+	cm.globalModel.ngramTrie.totalNGrams = model.NGramTrieTotalNGrams
+	cm.globalModel.ngramTrie.totalTokens = model.NGramTrieTotalTokens
+	cm.globalModel.contextTrie.totalNGrams = model.ContextTrieTotalNGrams
+	cm.globalModel.contextTrie.totalTokens = model.ContextTrieTotalTokens
 
 	// Update total tokens
-	cm.globalTrieModel.totalTokens = model.TotalTokens
+	cm.globalModel.totalTokens = model.TotalTokens
 
 	return nil
-}
-
-// deserializeMapModel reconstructs a map-based model
-func (p *NGramPersistence) deserializeMapModel(model *SerializableNGramModel, cm *CorpusManager) {
-	cm.globalModel.mu.Lock()
-	defer cm.globalModel.mu.Unlock()
-
-	cm.globalModel.totalTokens = model.TotalTokens
-	cm.globalModel.vocabulary = model.Vocabulary
-	cm.globalModel.ngramCounts = model.NGramCounts
-	cm.globalModel.contextCounts = model.ContextCounts
 }
 
 // reconstructTrie rebuilds a trie from serialized nodes

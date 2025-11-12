@@ -1,10 +1,18 @@
 package service
 
 import (
-	"bot-go/internal/model/ngram"
 	"math"
 	"sync"
 )
+
+// ModelStats contains statistics about an n-gram model
+type ModelStats struct {
+	N              int    `json:"n"`
+	VocabularySize int    `json:"vocabulary_size"`
+	NGramCount     int    `json:"ngram_count"`
+	TotalTokens    int64  `json:"total_tokens"`
+	SmootherName   string `json:"smoother_name"`
+}
 
 // NGramModelTrie stores n-gram statistics using a trie structure
 type NGramModelTrie struct {
@@ -276,66 +284,3 @@ func (s TrieModelMemoryStats) TotalMemoryBytes() int64 {
 		s.ContextStats.TotalMemoryBytes()
 }
 
-// ConvertToTrieModel converts a map-based NGramModel to a trie-based model
-func ConvertToTrieModel(model *NGramModel) *NGramModelTrie {
-	trieModel := NewNGramModelTrie(model.n, model.smoother)
-
-	model.mu.RLock()
-	defer model.mu.RUnlock()
-
-	// Copy vocabulary
-	for token, count := range model.vocabulary {
-		for i := int64(0); i < count; i++ {
-			trieModel.vocabulary.Insert([]string{token})
-		}
-	}
-
-	// Copy n-grams
-	for ngramStr, count := range model.ngramCounts {
-		// Parse n-gram string back to tokens
-		ng := ngram.NGram{}
-		// This is a simplified parser - assumes space-separated tokens
-		tokens := parseNGramString(ngramStr)
-		for i := int64(0); i < count; i++ {
-			trieModel.ngramTrie.Insert(tokens)
-		}
-		_ = ng // Suppress unused warning
-	}
-
-	// Copy contexts
-	for contextStr, count := range model.contextCounts {
-		tokens := parseNGramString(contextStr)
-		for i := int64(0); i < count; i++ {
-			trieModel.contextTrie.Insert(tokens)
-		}
-	}
-
-	trieModel.totalTokens = model.totalTokens
-
-	return trieModel
-}
-
-// parseNGramString is a helper to parse space-separated n-gram strings
-// Note: This is simplified and doesn't handle tokens with spaces
-func parseNGramString(ngramStr string) []string {
-	if ngramStr == "" {
-		return []string{}
-	}
-	// Simple split by space - may need more sophisticated parsing
-	tokens := []string{}
-	current := ""
-	for _, ch := range ngramStr {
-		if ch == ' ' {
-			if current != "" {
-				tokens = append(tokens, current)
-				current = ""
-			}
-		} else {
-			current += string(ch)
-		}
-	}
-	if current != "" {
-		tokens = append(tokens, current)
-	}
-	return tokens
-}

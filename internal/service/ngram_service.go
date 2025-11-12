@@ -2,6 +2,8 @@ package service
 
 import (
 	"bot-go/internal/config"
+	"bot-go/internal/service/tokenizer"
+	"bot-go/internal/util"
 	"context"
 	"fmt"
 	"io"
@@ -15,9 +17,9 @@ import (
 
 // NGramService orchestrates n-gram model building for repositories
 type NGramService struct {
-	corpusManagers map[string]*CorpusManager // repo name -> corpus manager
-	registry       *TokenizerRegistry
-	persistence    *NGramPersistence         // Model persistence
+	corpusManagers map[string]*CorpusManager        // repo name -> corpus manager
+	registry       *tokenizer.TokenizerRegistry
+	persistence    *NGramPersistence                // Model persistence
 	logger         *zap.Logger
 	mu             sync.RWMutex
 }
@@ -29,34 +31,34 @@ func NewNGramService(logger *zap.Logger) (*NGramService, error) {
 
 // NewNGramServiceWithOutputDir creates a new n-gram service with custom output directory
 func NewNGramServiceWithOutputDir(outputDir string, logger *zap.Logger) (*NGramService, error) {
-	registry := NewTokenizerRegistry()
+	registry := tokenizer.NewTokenizerRegistry()
 
 	// Register all tokenizers
-	goTokenizer, err := NewGoTokenizer()
+	goTokenizer, err := tokenizer.NewGoTokenizer()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Go tokenizer: %w", err)
 	}
 	registry.Register("go", goTokenizer, []string{".go"})
 
-	pythonTokenizer, err := NewPythonTokenizer()
+	pythonTokenizer, err := tokenizer.NewPythonTokenizer()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Python tokenizer: %w", err)
 	}
 	registry.Register("python", pythonTokenizer, []string{".py", ".pyw"})
 
-	jsTokenizer, err := NewJavaScriptTokenizer()
+	jsTokenizer, err := tokenizer.NewJavaScriptTokenizer()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create JavaScript tokenizer: %w", err)
 	}
 	registry.Register("javascript", jsTokenizer, []string{".js", ".jsx", ".mjs"})
 
-	tsTokenizer, err := NewTypeScriptTokenizer()
+	tsTokenizer, err := tokenizer.NewTypeScriptTokenizer()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create TypeScript tokenizer: %w", err)
 	}
 	registry.Register("typescript", tsTokenizer, []string{".ts", ".tsx"})
 
-	javaTokenizer, err := NewJavaTokenizer()
+	javaTokenizer, err := tokenizer.NewJavaTokenizer()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Java tokenizer: %w", err)
 	}
@@ -106,72 +108,82 @@ func (ns *NGramService) ProcessRepository(ctx context.Context, repo *config.Repo
 			zap.Error(err))
 	}
 
-	// Create new corpus manager
+	// Create new corpus manager (always Trie+Bloom)
 	ns.mu.Lock()
 	smoother := NewAddKSmoother(1.0)
-	// Use trie + bloom filter for better memory efficiency
-	corpusManager := NewCorpusManagerWithTrieAndBloom(n, smoother, ns.registry, ns.logger)
+	corpusManager := NewCorpusManager(n, smoother, ns.registry, ns.logger)
 	ns.corpusManagers[repo.Name] = corpusManager
 	ns.mu.Unlock()
 
-	// Walk the repository directory
+	// Walk the repository directory using concurrent walker
 	fileCount := 0
-	err := filepath.Walk(repo.Path, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
+	var mu sync.Mutex
 
-		// Skip directories
-		if info.IsDir() {
-			// Skip common ignored directories
-			dirName := filepath.Base(path)
-			if ns.shouldSkipDirectory(dirName) {
-				return filepath.SkipDir
+	err := util.WalkDirTree(repo.Path,
+		// Walk function - called for each file
+		func(path string, err error) error {
+			if err != nil {
+				return err
 			}
+
+			// Check if file should be processed
+			if !ns.shouldProcessFile(path, repo) {
+				return nil
+			}
+
+			// Detect language
+			language := ns.detectLanguage(path)
+			if language == "" {
+				return nil
+			}
+
+			// Read file
+			source, err := ns.readFile(path)
+			if err != nil {
+				ns.logger.Warn("Failed to read file",
+					zap.String("path", path),
+					zap.Error(err),
+				)
+				return nil
+			}
+
+			// Add file to corpus
+			err = corpusManager.AddFile(ctx, path, source, language)
+			if err != nil {
+				ns.logger.Warn("Failed to process file",
+					zap.String("path", path),
+					zap.Error(err),
+				)
+				return nil
+			}
+
+			mu.Lock()
+			fileCount++
+			currentCount := fileCount
+			mu.Unlock()
+
+			if currentCount%100 == 0 {
+				ns.logger.Info("Processing progress",
+					zap.String("repo", repo.Name),
+					zap.Int("files", currentCount),
+				)
+			}
+
 			return nil
-		}
-
-		// Check if file should be processed
-		if !ns.shouldProcessFile(path, repo) {
-			return nil
-		}
-
-		// Detect language
-		language := ns.detectLanguage(path)
-		if language == "" {
-			return nil
-		}
-
-		// Read file
-		source, err := ns.readFile(path)
-		if err != nil {
-			ns.logger.Warn("Failed to read file",
-				zap.String("path", path),
-				zap.Error(err),
-			)
-			return nil
-		}
-
-		// Add file to corpus
-		err = corpusManager.AddFile(ctx, path, source, language)
-		if err != nil {
-			ns.logger.Warn("Failed to process file",
-				zap.String("path", path),
-				zap.Error(err),
-			)
-			return nil
-		}
-
-		fileCount++
-		if fileCount%100 == 0 {
-			ns.logger.Info("Processing progress",
-				zap.String("repo", repo.Name),
-				zap.Int("files", fileCount),
-			)
-		}
-
-		return nil
-	})
+		},
+		// Skip function - called to determine if path should be skipped
+		func(path string, isDir bool) bool {
+			if isDir {
+				// Skip common ignored directories
+				dirName := filepath.Base(path)
+				return ns.shouldSkipDirectory(dirName)
+			}
+			return false
+		},
+		ns.logger,
+		0, // gcThreshold: 0 = disabled
+		2, // numThreads: use 2 workers
+	)
 
 	if err != nil {
 		return fmt.Errorf("failed to walk repository: %w", err)
@@ -295,17 +307,8 @@ func (ns *NGramService) CalculateZScore(ctx context.Context, repoName, language 
 		normalizedTokens = append(normalizedTokens, normalized)
 	}
 
-	// Get the appropriate model
-	var entropy float64
-	var ngramScores []NGramScoreDetail
-
-	if cm.useTrie && cm.globalTrieModel != nil {
-		entropy, ngramScores = ns.calculateEntropyWithScores(normalizedTokens, cm.globalTrieModel, cm.n)
-	} else if cm.globalModel != nil {
-		entropy, ngramScores = ns.calculateEntropyWithScoresMap(normalizedTokens, cm.globalModel, cm.n)
-	} else {
-		return nil, fmt.Errorf("no global model found")
-	}
+	// Calculate entropy and scores (always Trie+Bloom)
+	entropy, ngramScores := ns.calculateEntropyWithScores(normalizedTokens, cm.globalModel, cm.n)
 
 	// Calculate z-score
 	zScore := cm.CalculateZScore(ctx, entropy)
@@ -328,42 +331,6 @@ func (ns *NGramService) CalculateZScore(ctx context.Context, repoName, language 
 
 // calculateEntropyWithScores calculates entropy and returns individual n-gram scores (trie-based)
 func (ns *NGramService) calculateEntropyWithScores(tokens []string, model *NGramModelTrie, n int) (float64, []NGramScoreDetail) {
-	if len(tokens) < n {
-		return 0, []NGramScoreDetail{}
-	}
-
-	totalEntropy := 0.0
-	ngramScores := make([]NGramScoreDetail, 0, len(tokens)-n+1)
-
-	for i := 0; i <= len(tokens)-n; i++ {
-		ngram := tokens[i : i+n]
-		// Split into context and token
-		context := ngram[:n-1]
-		token := ngram[n-1]
-		prob := model.Probability(token, context)
-		logProb := 0.0
-		if prob > 0 {
-			logProb = -1.0 * log2(prob)
-		} else {
-			logProb = 20.0 // High value for zero probability
-		}
-
-		totalEntropy += logProb
-
-		ngramScores = append(ngramScores, NGramScoreDetail{
-			NGram:       ngram,
-			Probability: prob,
-			LogProb:     logProb,
-			Entropy:     logProb,
-		})
-	}
-
-	avgEntropy := totalEntropy / float64(len(tokens))
-	return avgEntropy, ngramScores
-}
-
-// calculateEntropyWithScoresMap calculates entropy and returns individual n-gram scores (map-based)
-func (ns *NGramService) calculateEntropyWithScoresMap(tokens []string, model *NGramModel, n int) (float64, []NGramScoreDetail) {
 	if len(tokens) < n {
 		return 0, []NGramScoreDetail{}
 	}

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bot-go/internal/service/tokenizer"
 	"context"
 	"fmt"
 	"sync"
@@ -11,79 +12,66 @@ import (
 
 // FileModel represents the n-gram model for a single file
 type FileModel struct {
-	FilePath      string
-	Language      string
-	TokenCount    int
-	LastModified  time.Time
-	Model         *NGramModel
-	TrieModel     *NGramModelTrie // Optional trie-based model
-	Entropy       float64         // Cached entropy value
+	FilePath     string
+	Language     string
+	TokenCount   int
+	LastModified time.Time
+	Model        *NGramModelTrie // Always trie-based with bloom filter
+	Entropy      float64         // Cached entropy value
 }
 
 // CorpusManager manages both file-level and global n-gram models
+// Always uses Trie+Bloom for optimal memory efficiency
 type CorpusManager struct {
-	globalModel     *NGramModel            // Aggregate model across all files
-	globalTrieModel *NGramModelTrie        // Optional trie-based global model
-	fileModels      map[string]*FileModel  // file path -> file model
-	tokenizer       *TokenizerRegistry
-	n               int                    // N-gram size
-	smoother        Smoother
-	useTrie         bool                   // Use trie-based storage
-	useBloom        bool                   // Use bloom filter for singleton detection
-	logger          *zap.Logger
-	mu              sync.RWMutex           // Protects fileModels map
+	globalModel *NGramModelTrie               // Global model (trie + bloom filter)
+	fileModels  map[string]*FileModel         // file path -> file model
+	tokenizer   *tokenizer.TokenizerRegistry
+	n           int                           // N-gram size
+	smoother    Smoother
+	logger      *zap.Logger
+	mu          sync.RWMutex                  // Protects fileModels map
 }
 
-// NewCorpusManager creates a new corpus manager
-func NewCorpusManager(n int, smoother Smoother, tokenizer *TokenizerRegistry, logger *zap.Logger) *CorpusManager {
-	return NewCorpusManagerWithOptions(n, smoother, tokenizer, false, false, logger)
-}
-
-// NewCorpusManagerWithTrie creates a new corpus manager using trie-based storage
-func NewCorpusManagerWithTrie(n int, smoother Smoother, tokenizer *TokenizerRegistry, logger *zap.Logger) *CorpusManager {
-	return NewCorpusManagerWithOptions(n, smoother, tokenizer, true, false, logger)
-}
-
-// NewCorpusManagerWithTrieAndBloom creates a new corpus manager using trie + bloom filter
-func NewCorpusManagerWithTrieAndBloom(n int, smoother Smoother, tokenizer *TokenizerRegistry, logger *zap.Logger) *CorpusManager {
-	return NewCorpusManagerWithOptions(n, smoother, tokenizer, true, true, logger)
-}
-
-// NewCorpusManagerWithOptions creates a new corpus manager with custom options
-func NewCorpusManagerWithOptions(n int, smoother Smoother, tokenizer *TokenizerRegistry, useTrie bool, useBloom bool, logger *zap.Logger) *CorpusManager {
+// NewCorpusManager creates a new corpus manager with Trie+Bloom (recommended)
+func NewCorpusManager(n int, smoother Smoother, tokenizerRegistry *tokenizer.TokenizerRegistry, logger *zap.Logger) *CorpusManager {
 	if n < 1 {
 		n = 3 // Default to trigrams
 	}
 	if smoother == nil {
 		smoother = NewAddKSmoother(1.0)
 	}
-	if tokenizer == nil {
-		tokenizer = NewTokenizerRegistry()
+	if tokenizerRegistry == nil {
+		tokenizerRegistry = tokenizer.NewTokenizerRegistry()
 	}
 
-	cm := &CorpusManager{
-		fileModels: make(map[string]*FileModel),
-		tokenizer:  tokenizer,
-		n:          n,
-		smoother:   smoother,
-		useTrie:    useTrie,
-		useBloom:   useBloom,
-		logger:     logger,
-	}
+	// Always use Trie+Bloom for optimal memory efficiency
+	// Estimate: ~100K n-grams per 10K LOC, 1% false positive rate
+	globalModel := NewNGramModelTrieWithBloom(n, smoother, true, 100000, 0.01)
 
-	if useTrie {
-		if useBloom {
-			// Create trie model with bloom filter
-			// Estimate based on typical code corpus: ~100K n-grams per 10K LOC
-			cm.globalTrieModel = NewNGramModelTrieWithBloom(n, smoother, true, 100000, 0.01)
-		} else {
-			cm.globalTrieModel = NewNGramModelTrie(n, smoother)
-		}
-	} else {
-		cm.globalModel = NewNGramModel(n, smoother)
+	return &CorpusManager{
+		globalModel: globalModel,
+		fileModels:  make(map[string]*FileModel),
+		tokenizer:   tokenizerRegistry,
+		n:           n,
+		smoother:    smoother,
+		logger:      logger,
 	}
+}
 
-	return cm
+// Deprecated: Use NewCorpusManager instead (always uses Trie+Bloom now)
+func NewCorpusManagerWithTrie(n int, smoother Smoother, tokenizerRegistry *tokenizer.TokenizerRegistry, logger *zap.Logger) *CorpusManager {
+	return NewCorpusManager(n, smoother, tokenizerRegistry, logger)
+}
+
+// Deprecated: Use NewCorpusManager instead (always uses Trie+Bloom now)
+func NewCorpusManagerWithTrieAndBloom(n int, smoother Smoother, tokenizerRegistry *tokenizer.TokenizerRegistry, logger *zap.Logger) *CorpusManager {
+	return NewCorpusManager(n, smoother, tokenizerRegistry, logger)
+}
+
+// Deprecated: Use NewCorpusManager instead (always uses Trie+Bloom now)
+func NewCorpusManagerWithOptions(n int, smoother Smoother, tokenizerRegistry *tokenizer.TokenizerRegistry, useTrie bool, useBloom bool, logger *zap.Logger) *CorpusManager {
+	logger.Warn("NewCorpusManagerWithOptions is deprecated, always uses Trie+Bloom now")
+	return NewCorpusManager(n, smoother, tokenizerRegistry, logger)
 }
 
 // AddFile adds a file to the corpus, updating both file-level and global models
@@ -115,39 +103,22 @@ func (cm *CorpusManager) AddFile(ctx context.Context, filePath string, source []
 	}
 	cm.mu.Unlock()
 
-	// Create new file model (map-based or trie-based)
-	var entropy float64
+	// Create new file model (always Trie+Bloom)
+	fileModel := NewNGramModelTrieWithBloom(cm.n, cm.smoother, true, 10000, 0.01)
+	fileModel.Add(normalizedTokens)
+	entropy := fileModel.CrossEntropy(normalizedTokens)
+
 	fm := &FileModel{
 		FilePath:     filePath,
 		Language:     language,
 		TokenCount:   len(normalizedTokens),
 		LastModified: time.Now(),
+		Model:        fileModel,
+		Entropy:      entropy,
 	}
 
-	if cm.useTrie {
-		var fileTrieModel *NGramModelTrie
-		if cm.useBloom {
-			fileTrieModel = NewNGramModelTrieWithBloom(cm.n, cm.smoother, true, 10000, 0.01)
-		} else {
-			fileTrieModel = NewNGramModelTrie(cm.n, cm.smoother)
-		}
-		fileTrieModel.Add(normalizedTokens)
-		entropy = fileTrieModel.CrossEntropy(normalizedTokens)
-		fm.TrieModel = fileTrieModel
-
-		// Update global trie model
-		cm.globalTrieModel.Add(normalizedTokens)
-	} else {
-		fileModel := NewNGramModel(cm.n, cm.smoother)
-		fileModel.Add(normalizedTokens)
-		entropy = fileModel.CrossEntropy(normalizedTokens)
-		fm.Model = fileModel
-
-		// Update global model
-		cm.globalModel.Add(normalizedTokens)
-	}
-
-	fm.Entropy = entropy
+	// Update global model
+	cm.globalModel.Add(normalizedTokens)
 
 	// Store file model
 	cm.mu.Lock()
@@ -193,39 +164,22 @@ func (cm *CorpusManager) UpdateFile(ctx context.Context, filePath string, source
 		normalizedTokens = append(normalizedTokens, normalized)
 	}
 
-	// Create new file model
-	var entropy float64
+	// Create new file model (always Trie+Bloom)
+	newFileModel := NewNGramModelTrieWithBloom(cm.n, cm.smoother, true, 10000, 0.01)
+	newFileModel.Add(normalizedTokens)
+	entropy := newFileModel.CrossEntropy(normalizedTokens)
+
 	fm := &FileModel{
 		FilePath:     filePath,
 		Language:     language,
 		TokenCount:   len(normalizedTokens),
 		LastModified: time.Now(),
+		Model:        newFileModel,
+		Entropy:      entropy,
 	}
 
-	if cm.useTrie {
-		var newFileModel *NGramModelTrie
-		if cm.useBloom {
-			newFileModel = NewNGramModelTrieWithBloom(cm.n, cm.smoother, true, 10000, 0.01)
-		} else {
-			newFileModel = NewNGramModelTrie(cm.n, cm.smoother)
-		}
-		newFileModel.Add(normalizedTokens)
-		entropy = newFileModel.CrossEntropy(normalizedTokens)
-		fm.TrieModel = newFileModel
-
-		// Update global model (simplified merge)
-		cm.globalTrieModel.Add(normalizedTokens)
-	} else {
-		newFileModel := NewNGramModel(cm.n, cm.smoother)
-		newFileModel.Add(normalizedTokens)
-		entropy = newFileModel.CrossEntropy(normalizedTokens)
-		fm.Model = newFileModel
-
-		// Update global model
-		cm.globalModel.Merge(newFileModel)
-	}
-
-	fm.Entropy = entropy
+	// Update global model
+	cm.globalModel.Add(normalizedTokens)
 
 	// Update file model
 	cm.mu.Lock()
@@ -323,7 +277,7 @@ func (cm *CorpusManager) GetFileModel(ctx context.Context, filePath string) (*Fi
 }
 
 // GetGlobalModel returns the global n-gram model
-func (cm *CorpusManager) GetGlobalModel() *NGramModel {
+func (cm *CorpusManager) GetGlobalModel() *NGramModelTrie {
 	return cm.globalModel
 }
 
@@ -342,12 +296,8 @@ func (cm *CorpusManager) GetStats(ctx context.Context) CorpusStats {
 		entropies = append(entropies, fm.Entropy)
 	}
 
-	var globalModelStats ModelStats
-	if cm.useTrie {
-		globalModelStats = cm.globalTrieModel.Stats()
-	} else {
-		globalModelStats = cm.globalModel.Stats()
-	}
+	// Get global model stats (always Trie+Bloom)
+	globalModelStats := cm.globalModel.Stats()
 
 	// Calculate entropy statistics
 	entropyStats := calculateEntropyStatistics(entropies)
@@ -364,21 +314,15 @@ func (cm *CorpusManager) GetStats(ctx context.Context) CorpusStats {
 	}
 }
 
-// GetMemoryStats returns memory usage statistics (for trie-based models)
+// GetMemoryStats returns memory usage statistics
 func (cm *CorpusManager) GetMemoryStats() *TrieModelMemoryStats {
-	if !cm.useTrie || cm.globalTrieModel == nil {
-		return nil
-	}
-	stats := cm.globalTrieModel.MemoryStats()
+	stats := cm.globalModel.MemoryStats()
 	return &stats
 }
 
 // PruneGlobalModel prunes low-frequency n-grams from the global model
 func (cm *CorpusManager) PruneGlobalModel(minCount int64) (int64, int64) {
-	if cm.useTrie && cm.globalTrieModel != nil {
-		return cm.globalTrieModel.Prune(minCount)
-	}
-	return 0, 0
+	return cm.globalModel.Prune(minCount)
 }
 
 // ListFiles returns a list of all files in the corpus

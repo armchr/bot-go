@@ -175,36 +175,9 @@ tokens, _ := tokenizer.Tokenize(ctx, source)
 // Result: [func, ID, (, ID, ,, ID, int, ), int, {, return, ID, +, ID, }]
 ```
 
-### 2. N-gram Model (`internal/service/ngram_model.go`)
+### 2. N-gram Model (`internal/service/ngram_model_trie.go`)
 
-**Map-based implementation** (baseline):
-
-```go
-type NGramModel struct {
-    n             int                // N-gram size (e.g., 3 for trigrams)
-    vocabulary    map[string]int64   // token -> frequency
-    ngramCounts   map[string]int64   // n-gram -> count
-    contextCounts map[string]int64   // (n-1)-gram context -> count
-    totalTokens   int64              // Total tokens processed
-    smoother      Smoother           // Smoothing algorithm
-    mu            sync.RWMutex       // Thread-safe access
-}
-```
-
-**Key methods:**
-- `Add(tokens []string)` - Add token sequence to model
-- `Probability(ngram []string) float64` - Get n-gram probability
-- `CrossEntropy(tokens []string) float64` - Calculate entropy
-- `Perplexity(tokens []string) float64` - Calculate perplexity
-
-**Storage format:**
-- N-grams stored as space-separated strings: `"func ID ("`
-- Uses Go's built-in map for O(1) lookup
-- Memory: ~80 bytes per entry
-
-### 3. Trie-based Model (`internal/service/ngram_trie.go`, `ngram_model_trie.go`)
-
-**Motivation:** Map-based storage uses ~80 bytes per n-gram. For large codebases with millions of n-grams, this becomes memory-intensive.
+**Implementation:** Always uses Trie + Bloom filter for optimal memory efficiency.
 
 **Trie structure:**
 ```go
@@ -234,22 +207,24 @@ type NGramTrie struct {
 ```
 Example: 100K unique trigrams with 1000 unique tokens
 
-Map-based:
-  - 100K entries × 80 bytes = 8 MB
-
-Trie-based:
+Trie-based with string interning:
   - 150K nodes × 56 bytes = 8.4 MB
   - String interning: 1000 tokens × 20 bytes = 20 KB
-  - Total: ~8.5 MB (similar to map)
+  - Total: ~8.5 MB
 
-BUT with shared prefixes (typical in code):
+With shared prefixes (typical in code):
   - Actual nodes: ~30K (70% sharing)
   - Total: ~1.7 MB (5x improvement!)
+
+With Bloom filter (removing singletons):
+  - ~50-70% reduction in stored n-grams
+  - Total: ~500 KB - 1 MB (10-15x improvement!)
 ```
 
-**When trie is better:**
+**Why Trie + Bloom is optimal:**
 - High prefix sharing (common in structured code)
-- Large vocabulary size
+- Efficient singleton detection and filtering
+- Minimal false positives (~1%)
 - Need efficient prefix queries
 
 **Example trie structure:**
@@ -266,7 +241,7 @@ Root (0)
          └─ == (9) [count=400]   ← "if ID ==" trigram
 ```
 
-### 4. Bloom Filter Optimization (`internal/service/ngram_trie.go`)
+### 3. Bloom Filter Optimization (`internal/service/ngram_trie.go`)
 
 **Problem:** In typical code, 50-70% of n-grams are **singletons** (appear exactly once). Storing singletons wastes memory with minimal benefit to naturalness models.
 
@@ -345,16 +320,13 @@ model := NewNGramModelTrieWithBloom(
 
 ```go
 type CorpusManager struct {
-    n               int                      // N-gram size
-    globalModel     *NGramModel              // Global map-based model
-    globalTrieModel *NGramModelTrie          // Global trie-based model
-    fileModels      map[string]*FileModel    // Per-file models
-    smoother        Smoother                 // Smoothing algorithm
-    registry        *TokenizerRegistry       // Language tokenizers
-    useTrie         bool                     // Use trie or map
-    useBloom        bool                     // Use bloom filter
-    logger          *zap.Logger
-    mu              sync.RWMutex
+    n           int                      // N-gram size
+    globalModel *NGramModelTrie          // Global model (always Trie+Bloom)
+    fileModels  map[string]*FileModel    // Per-file models
+    smoother    Smoother                 // Smoothing algorithm
+    registry    *TokenizerRegistry       // Language tokenizers
+    logger      *zap.Logger
+    mu          sync.RWMutex
 }
 
 type FileModel struct {
@@ -362,8 +334,7 @@ type FileModel struct {
     Language     string
     TokenCount   int
     LastModified time.Time
-    Model        *NGramModel       // File-specific map model
-    TrieModel    *NGramModelTrie   // File-specific trie model
+    Model        *NGramModelTrie   // File-specific model (always Trie+Bloom)
     Entropy      float64           // Cached entropy value
 }
 ```
@@ -379,19 +350,10 @@ type FileModel struct {
 - `GetGlobalEntropy(ctx)` - Get average entropy across corpus
 - `GetStats(ctx)` - Get corpus statistics
 
-**Factory methods:**
+**Factory method:**
 ```go
-// Map-based (default)
+// Always uses Trie + Bloom filter for optimal memory efficiency
 cm := NewCorpusManager(n, smoother, registry, logger)
-
-// Trie-based
-cm := NewCorpusManagerWithTrie(n, smoother, registry, logger)
-
-// Trie + Bloom filter (recommended for production)
-cm := NewCorpusManagerWithTrieAndBloom(n, smoother, registry, logger)
-
-// Custom configuration
-cm := NewCorpusManagerWithOptions(n, smoother, registry, useTrie, useBloom, logger)
 ```
 
 ### 6. N-gram Service (`internal/service/ngram_service.go`)
@@ -424,8 +386,8 @@ func (ns *NGramService) ProcessRepository(ctx, repo, n, override) error {
         return nil  // Fast path - load from disk
     }
 
-    // 2. Create new corpus manager
-    corpusManager := NewCorpusManagerWithTrieAndBloom(n, smoother, registry, logger)
+    // 2. Create new corpus manager (always Trie+Bloom)
+    corpusManager := NewCorpusManager(n, smoother, registry, logger)
 
     // 3. Walk repository directory
     filepath.Walk(repo.Path, func(path, info, err) error {
@@ -462,6 +424,8 @@ func (ns *NGramService) ProcessRepository(ctx, repo, n, override) error {
 
 ### Comparison Table
 
+**Note:** This codebase now uses **Trie + Bloom filter exclusively**. The sections below are kept for reference to explain the design decision.
+
 | Strategy | Memory (100K n-grams) | Insertion Speed | Lookup Speed | Prefix Queries | Singletons Stored |
 |----------|----------------------|-----------------|--------------|----------------|-------------------|
 | Map | 8 MB | Fast (O(1)) | Fast (O(1)) | No | Yes (100%) |
@@ -470,7 +434,7 @@ func (ns *NGramService) ProcessRepository(ctx, repo, n, override) error {
 
 *k = n-gram size (typically 3)*
 
-### Map-based Storage
+### Map-based Storage (Reference Only)
 
 **Pros:**
 - Simple implementation
@@ -580,10 +544,8 @@ Example: `./ngram_models/bot-go_ngram.gob`
 
 ```go
 type SerializableNGramModel struct {
-    Version       string                 // Format version (e.g., "1.0")
+    Version       string                 // Format version (e.g., "2.0")
     N             int                    // N-gram size
-    UseTrie       bool                   // Trie or map based
-    UseBloom      bool                   // Bloom filter enabled
     TotalTokens   int64                  // Total tokens processed
     CreatedAt     time.Time              // Model creation timestamp
     RepoName      string                 // Repository name
@@ -592,7 +554,6 @@ type SerializableNGramModel struct {
     // File-level metadata
     FileMetadata  map[string]FileMetadata // path -> metadata
 
-    // For trie-based models
     TokenToID     map[string]uint32      // String interning
     IDToToken     []string               // Reverse lookup
     TrieNodes     []SerializableTrieNode // Flattened n-gram trie
@@ -604,11 +565,6 @@ type SerializableNGramModel struct {
     NGramTrieTotalTokens    int64
     ContextTrieTotalNGrams  int64
     ContextTrieTotalTokens  int64
-
-    // For map-based models
-    Vocabulary    map[string]int64       // token -> frequency
-    NGramCounts   map[string]int64       // n-gram -> count
-    ContextCounts map[string]int64       // context -> count
 }
 
 type FileMetadata struct {
@@ -739,18 +695,12 @@ err := persistence.DeleteModel("bot-go")
 ### File Size Examples
 
 **Small repository (5K LOC):**
-- Map-based: ~500 KB
-- Trie-based: ~200 KB
 - Trie+Bloom: ~150 KB
 
 **Medium repository (50K LOC):**
-- Map-based: ~5 MB
-- Trie-based: ~2 MB
 - Trie+Bloom: ~1.5 MB
 
 **Large repository (500K LOC):**
-- Map-based: ~50 MB
-- Trie-based: ~15 MB
 - Trie+Bloom: ~10 MB
 
 ### Benefits of Persistence
