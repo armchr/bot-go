@@ -1,6 +1,7 @@
 package tokenizer
 
 import (
+	"sync"
 	"bot-go/internal/model/ngram"
 	"context"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 type JavaScriptTokenizer struct {
 	parser   *tree_sitter.Parser
 	language *tree_sitter.Language
+	mu       sync.Mutex // Protects parser (tree-sitter parsers are not thread-safe)
 }
 
 // NewJavaScriptTokenizer creates a new JavaScript tokenizer
@@ -32,6 +34,9 @@ func NewJavaScriptTokenizer() (*JavaScriptTokenizer, error) {
 }
 
 func (t *JavaScriptTokenizer) Tokenize(ctx context.Context, source []byte) (ngram.TokenSequence, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	tree := t.parser.Parse(source, nil)
 	if tree == nil {
 		return nil, fmt.Errorf("failed to parse JavaScript source")

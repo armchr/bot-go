@@ -8,6 +8,8 @@ node_modules/
 dist/
 .venv/
 dump/
+source.yaml
+ngram_models/
 
 # Compiled Java class files
 *.class

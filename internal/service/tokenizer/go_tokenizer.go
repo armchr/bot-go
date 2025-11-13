@@ -4,6 +4,7 @@ import (
 	"bot-go/internal/model/ngram"
 	"context"
 	"fmt"
+	"sync"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	golang "github.com/tree-sitter/tree-sitter-go/bindings/go"
@@ -13,6 +14,7 @@ import (
 type GoTokenizer struct {
 	parser   *tree_sitter.Parser
 	language *tree_sitter.Language
+	mu       sync.Mutex // Protects parser (tree-sitter parsers are not thread-safe)
 }
 
 // NewGoTokenizer creates a new Go tokenizer
@@ -32,6 +34,9 @@ func NewGoTokenizer() (*GoTokenizer, error) {
 }
 
 func (t *GoTokenizer) Tokenize(ctx context.Context, source []byte) (ngram.TokenSequence, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	tree := t.parser.Parse(source, nil)
 	if tree == nil {
 		return nil, fmt.Errorf("failed to parse Go source")
