@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	"bot-go/internal/config"
 	"bot-go/internal/controller"
@@ -18,12 +19,26 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// stringSliceFlag is a custom flag type that allows multiple values
+type stringSliceFlag []string
+
+func (s *stringSliceFlag) String() string {
+	return strings.Join(*s, ",")
+}
+
+func (s *stringSliceFlag) Set(value string) error {
+	*s = append(*s, value)
+	return nil
+}
+
 func main() {
 	var sourceConfigPath = flag.String("source", "source.yaml", "Path to source configuration file")
 	var appConfigPath = flag.String("app", "app.yaml", "Path to app configuration file")
 	var workDir = flag.String("workdir", "", "Working directory to store files")
 	//var port = flag.String("port", "8080", "Server port")
 	var test = flag.Bool("test", false, "Run in test mode")
+	var buildIndex stringSliceFlag
+	flag.Var(&buildIndex, "build-index", "Repository name to build index for (can be specified multiple times)")
 	flag.Parse()
 
 	//logger, err := zap.NewProduction()
@@ -52,6 +67,13 @@ func main() {
 	if test != nil && *test {
 		logger.Info("Running in test mode")
 		LSPTest(cfg, logger)
+		return
+	}
+
+	// Check if we're in CLI mode (build-index specified)
+	if len(buildIndex) > 0 {
+		logger.Info("Running in CLI mode - build-index")
+		BuildIndexCommand(cfg, logger, buildIndex)
 		return
 	}
 
@@ -158,6 +180,34 @@ func LSPTest(cfg *config.Config, logger *zap.Logger) {
 	baseClient := ls.(*lsp.TypeScriptLanguageServerClient).BaseClient
 
 	baseClient.TestCommand(ctx)
+}
+
+func BuildIndexCommand(cfg *config.Config, logger *zap.Logger, repoNames []string) {
+	logger.Info("Build index command started",
+		zap.Strings("repositories", repoNames))
+
+	for _, repoName := range repoNames {
+		logger.Info("Processing repository for index building",
+			zap.String("repo_name", repoName))
+
+		// Validate repository exists in config
+		repo, err := cfg.GetRepository(repoName)
+		if err != nil {
+			logger.Error("Repository not found in configuration",
+				zap.String("repo_name", repoName),
+				zap.Error(err))
+			continue
+		}
+
+		logger.Info("Hello World - Building index for repository",
+			zap.String("repo_name", repo.Name),
+			zap.String("path", repo.Path),
+			zap.String("language", repo.Language))
+
+		// TODO: Add actual index building logic here
+	}
+
+	logger.Info("Build index command completed")
 }
 
 func CodeGraphEntry(cfg *config.Config, logger *zap.Logger, repoService *service.RepoService) {

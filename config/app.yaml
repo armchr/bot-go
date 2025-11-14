@@ -9,8 +9,8 @@ app:
   num_file_threads: 2
 neo4j:
   uri: "bolt://localhost:7687"
-  username: ""
-  password: ""
+  username: "neo4j"
+  password: "neo4j"
 kuzu:
   path: "data/kuzu.db"
 qdrant:
