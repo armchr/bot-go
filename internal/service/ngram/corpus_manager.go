@@ -1,4 +1,4 @@
-package service
+package ngram
 
 import (
 	"bot-go/internal/service/tokenizer"
@@ -23,13 +23,13 @@ type FileModel struct {
 // CorpusManager manages both file-level and global n-gram models
 // Always uses Trie+Bloom for optimal memory efficiency
 type CorpusManager struct {
-	globalModel *NGramModelTrie               // Global model (trie + bloom filter)
-	fileModels  map[string]*FileModel         // file path -> file model
+	globalModel *NGramModelTrie       // Global model (trie + bloom filter)
+	fileModels  map[string]*FileModel // file path -> file model
 	tokenizer   *tokenizer.TokenizerRegistry
-	n           int                           // N-gram size
+	n           int // N-gram size
 	smoother    Smoother
 	logger      *zap.Logger
-	mu          sync.RWMutex                  // Protects fileModels map
+	mu          sync.RWMutex // Protects fileModels map
 }
 
 // NewCorpusManager creates a new corpus manager with Trie+Bloom (recommended)
@@ -340,14 +340,14 @@ func (cm *CorpusManager) ListFiles(ctx context.Context) []string {
 
 // CorpusStats contains statistics about the entire corpus
 type CorpusStats struct {
-	TotalFiles         int            `json:"total_files"`
-	TotalTokens        int            `json:"total_tokens"`
-	LanguageCounts     map[string]int `json:"language_counts"`
-	GlobalModel        ModelStats     `json:"global_model"`
-	AverageEntropy     float64        `json:"average_entropy"`
-	EntropyStdDev      float64        `json:"entropy_std_dev"`       // Standard deviation of file entropies
-	EntropyMin         float64        `json:"entropy_min"`           // Minimum file entropy
-	EntropyMax         float64        `json:"entropy_max"`           // Maximum file entropy
+	TotalFiles     int            `json:"total_files"`
+	TotalTokens    int            `json:"total_tokens"`
+	LanguageCounts map[string]int `json:"language_counts"`
+	GlobalModel    ModelStats     `json:"global_model"`
+	AverageEntropy float64        `json:"average_entropy"`
+	EntropyStdDev  float64        `json:"entropy_std_dev"` // Standard deviation of file entropies
+	EntropyMin     float64        `json:"entropy_min"`     // Minimum file entropy
+	EntropyMax     float64        `json:"entropy_max"`     // Maximum file entropy
 }
 
 // EntropyStats contains detailed entropy statistics for z-score calculation

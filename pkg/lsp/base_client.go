@@ -84,7 +84,7 @@ func NewBaseClient(command string, logger *zap.Logger, args ...string) (*BaseCli
 
 	// Start stderr monitoring
 	go client.monitorStderr()
-	
+
 	go client.readLoop(&wg)
 
 	// Wait for the read loop to start
@@ -311,12 +311,12 @@ func (c *BaseClient) readLoop(wg *sync.WaitGroup) {
 					break
 				}
 				headerStr := string(headerLine)
-				
+
 				// Empty line indicates end of headers
 				if len(headerStr) == 0 {
 					break
 				}
-				
+
 				// Skip Content-Type and other headers
 				c.logger.Debug("Skipping additional header", zap.String("header", headerStr))
 			}

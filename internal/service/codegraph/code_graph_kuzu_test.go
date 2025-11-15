@@ -1,4 +1,4 @@
-package service
+package codegraph
 
 import (
 	"context"
@@ -176,7 +176,7 @@ func TestCodeGraphWithKuzu_Relations(t *testing.T) {
 	// TODO: Relationship creation is not fully implemented in Kuzu yet
 	// This is a known limitation that would require creating relationship tables
 	// For now, we'll skip this test
-	
+
 	// err = cg.CreateContainsRelation(ctx, ast.NodeID(300), ast.NodeID(301))
 	// if err != nil {
 	//     t.Fatalf("Failed to create contains relation: %v", err)

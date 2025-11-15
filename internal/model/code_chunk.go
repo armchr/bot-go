@@ -27,17 +27,17 @@ type CodeChunk struct {
 	ParentID  string    `json:"parent_id,omitempty"`
 
 	// Code content
-	Content   string `json:"content"`
-	Language  string `json:"language"`
-	FilePath  string `json:"file_path"`
-	StartLine int    `json:"start_line"`
-	EndLine   int    `json:"end_line"`
+	Content   string     `json:"content"`
+	Language  string     `json:"language"`
+	FilePath  string     `json:"file_path"`
+	StartLine int        `json:"start_line"`
+	EndLine   int        `json:"end_line"`
 	Range     base.Range `json:"range"`
 
 	// Semantic metadata
-	Name       string `json:"name,omitempty"`       // Function/class/file name
-	Signature  string `json:"signature,omitempty"`  // Function signature
-	Docstring  string `json:"docstring,omitempty"`  // Documentation
+	Name      string `json:"name,omitempty"`      // Function/class/file name
+	Signature string `json:"signature,omitempty"` // Function signature
+	Docstring string `json:"docstring,omitempty"` // Documentation
 
 	// Context for better understanding
 	ModuleName string `json:"module_name,omitempty"` // Package/module name

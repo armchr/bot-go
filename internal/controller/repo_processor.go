@@ -3,6 +3,7 @@ package controller
 import (
 	"bot-go/internal/config"
 	"bot-go/internal/service"
+	"bot-go/internal/service/codegraph"
 	"bot-go/internal/util"
 	"context"
 	"fmt"
@@ -13,18 +14,18 @@ import (
 )
 
 type RepoProcessor struct {
-	config         *config.Config
-	codeGraph      *service.CodeGraph
-	repoService    *service.RepoService
-	logger         *zap.Logger
-	codeGraphProc  *CodeGraphProcessor
+	config        *config.Config
+	codeGraph     *codegraph.CodeGraph
+	repoService   *service.RepoService
+	logger        *zap.Logger
+	codeGraphProc *CodeGraphProcessor
 }
 
-func NewRepoProcessor(config *config.Config, codeGraph *service.CodeGraph, logger *zap.Logger) *RepoProcessor {
+func NewRepoProcessor(config *config.Config, codeGraph *codegraph.CodeGraph, logger *zap.Logger) *RepoProcessor {
 	return &RepoProcessor{
-		config:      config,
-		codeGraph:   codeGraph,
-		logger:      logger,
+		config:    config,
+		codeGraph: codeGraph,
+		logger:    logger,
 	}
 }
 

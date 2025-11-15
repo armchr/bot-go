@@ -1,4 +1,4 @@
-package service
+package ngram
 
 import (
 	"math"
@@ -16,13 +16,13 @@ type ModelStats struct {
 
 // NGramModelTrie stores n-gram statistics using a trie structure
 type NGramModelTrie struct {
-	n            int          // N-gram size
-	ngramTrie    *NGramTrie   // Trie for full n-grams
-	contextTrie  *NGramTrie   // Trie for (n-1)-grams (contexts)
-	vocabulary   *NGramTrie   // Trie for unigrams (vocabulary)
-	totalTokens  int64        // Total number of tokens
-	smoother     Smoother     // Smoothing algorithm
-	mu           sync.RWMutex // Protects totalTokens
+	n           int          // N-gram size
+	ngramTrie   *NGramTrie   // Trie for full n-grams
+	contextTrie *NGramTrie   // Trie for (n-1)-grams (contexts)
+	vocabulary  *NGramTrie   // Trie for unigrams (vocabulary)
+	totalTokens int64        // Total number of tokens
+	smoother    Smoother     // Smoothing algorithm
+	mu          sync.RWMutex // Protects totalTokens
 }
 
 // NewNGramModelTrie creates a new trie-based n-gram model without bloom filter
@@ -283,4 +283,3 @@ func (s TrieModelMemoryStats) TotalMemoryBytes() int64 {
 		s.NGramStats.TotalMemoryBytes() +
 		s.ContextStats.TotalMemoryBytes()
 }
-

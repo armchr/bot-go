@@ -3,7 +3,7 @@ package parse
 import (
 	"bot-go/internal/config"
 	"bot-go/internal/model/ast"
-	"bot-go/internal/service"
+	"bot-go/internal/service/codegraph"
 	"context"
 	"fmt"
 	"io"
@@ -33,11 +33,11 @@ const (
 
 type FileParser struct {
 	parser    *tree_sitter.Parser
-	CodeGraph *service.CodeGraph
+	CodeGraph *codegraph.CodeGraph
 	logger    *zap.Logger
 }
 
-func NewFileParser(logger *zap.Logger, cg *service.CodeGraph) *FileParser {
+func NewFileParser(logger *zap.Logger, cg *codegraph.CodeGraph) *FileParser {
 	return &FileParser{
 		parser:    tree_sitter.NewParser(),
 		CodeGraph: cg,

@@ -1,4 +1,4 @@
-package service
+package codegraph
 
 import (
 	"context"
@@ -29,7 +29,7 @@ func NewKuzuDatabase(databasePath string, logger *zap.Logger) (*KuzuDatabase, er
 		// Create file-based database
 		db, err = kuzu.OpenDatabase(databasePath, kuzu.DefaultSystemConfig())
 	}
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Kuzu database: %w", err)
 	}
@@ -129,7 +129,7 @@ func (db *KuzuDatabase) executeQuery(ctx context.Context, query string, params m
 	if isWrite && strings.Contains(strings.ToUpper(query), "MERGE") {
 		return db.handleMergeQuery(ctx, query, params)
 	}
-	
+
 	// Handle MATCH queries with labels for read operations
 	if !isWrite && strings.Contains(strings.ToUpper(query), "MATCH") {
 		query = db.convertMatchQuery(query)
@@ -142,9 +142,9 @@ func (db *KuzuDatabase) executeQuery(ctx context.Context, query string, params m
 		// Use prepared statement for parameterized queries
 		preparedStatement, err := db.conn.Prepare(query)
 		if err != nil {
-			db.logger.Error("Failed to prepare Kuzu query", 
-				zap.String("query", query), 
-				zap.Bool("isWrite", isWrite), 
+			db.logger.Error("Failed to prepare Kuzu query",
+				zap.String("query", query),
+				zap.Bool("isWrite", isWrite),
 				zap.Error(err))
 			return nil, fmt.Errorf("failed to prepare query: %w", err)
 		}
@@ -157,9 +157,9 @@ func (db *KuzuDatabase) executeQuery(ctx context.Context, query string, params m
 	}
 
 	if err != nil {
-		db.logger.Error("Failed to execute Kuzu query", 
-			zap.String("query", query), 
-			zap.Bool("isWrite", isWrite), 
+		db.logger.Error("Failed to execute Kuzu query",
+			zap.String("query", query),
+			zap.Bool("isWrite", isWrite),
 			zap.Error(err))
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -167,7 +167,7 @@ func (db *KuzuDatabase) executeQuery(ctx context.Context, query string, params m
 
 	// Convert results to our standard format
 	var records []map[string]any
-	
+
 	for result.HasNext() {
 		tuple, err := result.Next()
 		if err != nil {
@@ -181,13 +181,13 @@ func (db *KuzuDatabase) executeQuery(ctx context.Context, query string, params m
 			db.logger.Error("Failed to convert tuple to map", zap.Error(err))
 			return nil, fmt.Errorf("failed to convert tuple to map: %w", err)
 		}
-		
+
 		// Convert any Kuzu-specific types to standard Go types
 		convertedRecord := make(map[string]any)
 		for key, value := range record {
 			convertedRecord[key] = db.convertKuzuValue(value)
 		}
-		
+
 		records = append(records, convertedRecord)
 	}
 
@@ -200,7 +200,7 @@ func (db *KuzuDatabase) convertKuzuValue(value any) any {
 	if node, ok := value.(kuzu.Node); ok {
 		return node.Properties
 	}
-	
+
 	// For other types, return as-is since Kuzu's GetAsMap() should already
 	// return proper Go types. If needed, we can add specific type conversions here.
 	return value
@@ -283,10 +283,10 @@ func (db *KuzuDatabase) handleMergeQuery(ctx context.Context, query string, para
 	if strings.Contains(query, "FileNumber") && strings.Contains(query, "max_file_id") {
 		return db.handleFileNumberMerge(ctx, query, params)
 	}
-	
+
 	// Parse the MERGE query to extract the node label and properties
 	// This is a simplified implementation for the CodeGraph use case
-	
+
 	// Extract node label from MERGE (n:Label {id: $id})
 	labelRegex := regexp.MustCompile(`MERGE\s*\(\s*\w+\s*:\s*(\w+)\s*\{[^}]*\}\s*\)`)
 	labelMatches := labelRegex.FindStringSubmatch(query)
@@ -294,43 +294,43 @@ func (db *KuzuDatabase) handleMergeQuery(ctx context.Context, query string, para
 		return nil, fmt.Errorf("could not parse node label from MERGE query")
 	}
 	nodeLabel := labelMatches[1]
-	
+
 	// For CodeGraph, we know the structure - try to create the node
 	// If it fails due to primary key constraint, we'll handle the error
-	
+
 	// Convert SET clause to CREATE clause
 	// Extract the properties that should be set
 	var createFields []string
 	var createValues []any
-	
+
 	for key, value := range params {
 		createFields = append(createFields, key)
 		createValues = append(createValues, value)
 	}
-	
+
 	// Build the CREATE query
 	fieldPlaceholders := make([]string, len(createFields))
 	for i, field := range createFields {
 		fieldPlaceholders[i] = fmt.Sprintf("%s: $%s", field, field)
 	}
-	
-	createQuery := fmt.Sprintf("CREATE (n:%s {%s})", 
-		nodeLabel, 
+
+	createQuery := fmt.Sprintf("CREATE (n:%s {%s})",
+		nodeLabel,
 		strings.Join(fieldPlaceholders, ", "))
-	
+
 	// Try to create the node using prepared statement with parameters
 	preparedStatement, err := db.conn.Prepare(createQuery)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare create query: %w", err)
 	}
 	defer preparedStatement.Close()
-	
+
 	result, err := db.conn.Execute(preparedStatement, params)
 	if err != nil {
 		// If creation failed due to primary key constraint, the node already exists
 		// For now, just return empty result (equivalent to MERGE finding existing node)
 		if strings.Contains(err.Error(), "PRIMARY KEY") || strings.Contains(err.Error(), "primary key") {
-			db.logger.Debug("Node already exists, skipping creation", 
+			db.logger.Debug("Node already exists, skipping creation",
 				zap.String("nodeLabel", nodeLabel),
 				zap.Any("params", params))
 			return []map[string]any{}, nil
@@ -338,7 +338,7 @@ func (db *KuzuDatabase) handleMergeQuery(ctx context.Context, query string, para
 		return nil, fmt.Errorf("failed to create node: %w", err)
 	}
 	defer result.Close()
-	
+
 	// Return empty result for successful creation (MERGE doesn't return the created node in our use case)
 	return []map[string]any{}, nil
 }
@@ -347,32 +347,32 @@ func (db *KuzuDatabase) handleMergeQuery(ctx context.Context, query string, para
 func (db *KuzuDatabase) handleFileNumberMerge(ctx context.Context, query string, params map[string]any) ([]map[string]any, error) {
 	// Check if FileNumber node exists
 	checkQuery := "MATCH (fn:FileNumber {id: -1}) RETURN fn.max_file_id as max_file_id"
-	
+
 	result, err := db.conn.Query(checkQuery)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check FileNumber existence: %w", err)
 	}
 	defer result.Close()
-	
+
 	var nextFileID int32
-	
+
 	if result.HasNext() {
 		// Node exists, get current value and increment
 		tuple, err := result.Next()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get FileNumber tuple: %w", err)
 		}
-		
+
 		record, err := tuple.GetAsMap()
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert FileNumber tuple to map: %w", err)
 		}
-		
+
 		currentMax, ok := record["max_file_id"]
 		if !ok {
 			return nil, fmt.Errorf("max_file_id not found in FileNumber record")
 		}
-		
+
 		// Handle different numeric types
 		switch v := currentMax.(type) {
 		case int32:
@@ -384,42 +384,42 @@ func (db *KuzuDatabase) handleFileNumberMerge(ctx context.Context, query string,
 		default:
 			return nil, fmt.Errorf("unexpected type for max_file_id: %T", currentMax)
 		}
-		
+
 		// Update the existing node
 		updateQuery := "MATCH (fn:FileNumber {id: -1}) SET fn.max_file_id = $max_file_id"
 		updateParams := map[string]any{"max_file_id": nextFileID}
-		
+
 		updateStmt, err := db.conn.Prepare(updateQuery)
 		if err != nil {
 			return nil, fmt.Errorf("failed to prepare update query: %w", err)
 		}
 		defer updateStmt.Close()
-		
+
 		updateResult, err := db.conn.Execute(updateStmt, updateParams)
 		if err != nil {
 			return nil, fmt.Errorf("failed to update FileNumber: %w", err)
 		}
 		updateResult.Close()
-		
+
 	} else {
 		// Node doesn't exist, create it with initial value
 		nextFileID = 1
 		createQuery := "CREATE (fn:FileNumber {id: -1, max_file_id: $max_file_id})"
 		createParams := map[string]any{"max_file_id": nextFileID}
-		
+
 		createStmt, err := db.conn.Prepare(createQuery)
 		if err != nil {
 			return nil, fmt.Errorf("failed to prepare create query: %w", err)
 		}
 		defer createStmt.Close()
-		
+
 		createResult, err := db.conn.Execute(createStmt, createParams)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create FileNumber: %w", err)
 		}
 		createResult.Close()
 	}
-	
+
 	// Return the next file ID
 	return []map[string]any{
 		{"next_file_id": nextFileID},

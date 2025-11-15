@@ -1,4 +1,4 @@
-package service
+package vector
 
 import (
 	"bot-go/internal/model"
@@ -344,18 +344,18 @@ func payloadToCodeChunk(id string, payload map[string]*qdrant.Value) *model.Code
 	}
 
 	chunk := &model.CodeChunk{
-		ID:        chunkID,
-		ChunkType: model.ChunkType(getStringValue(payload, "chunk_type")),
-		Level:     int(getIntValue(payload, "level")),
-		ParentID:  getStringValue(payload, "parent_id"),
-		Content:   getStringValue(payload, "content"),
-		Language:  getStringValue(payload, "language"),
-		FilePath:  getStringValue(payload, "file_path"),
-		StartLine: int(getIntValue(payload, "start_line")),
-		EndLine:   int(getIntValue(payload, "end_line")),
-		Name:      getStringValue(payload, "name"),
-		Signature: getStringValue(payload, "signature"),
-		Docstring: getStringValue(payload, "docstring"),
+		ID:         chunkID,
+		ChunkType:  model.ChunkType(getStringValue(payload, "chunk_type")),
+		Level:      int(getIntValue(payload, "level")),
+		ParentID:   getStringValue(payload, "parent_id"),
+		Content:    getStringValue(payload, "content"),
+		Language:   getStringValue(payload, "language"),
+		FilePath:   getStringValue(payload, "file_path"),
+		StartLine:  int(getIntValue(payload, "start_line")),
+		EndLine:    int(getIntValue(payload, "end_line")),
+		Name:       getStringValue(payload, "name"),
+		Signature:  getStringValue(payload, "signature"),
+		Docstring:  getStringValue(payload, "docstring"),
 		ModuleName: getStringValue(payload, "module_name"),
 		ClassName:  getStringValue(payload, "class_name"),
 	}

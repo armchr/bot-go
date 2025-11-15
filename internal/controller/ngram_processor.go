@@ -2,7 +2,7 @@ package controller
 
 import (
 	"bot-go/internal/config"
-	"bot-go/internal/service"
+	"bot-go/internal/service/ngram"
 	"context"
 	"sync/atomic"
 
@@ -11,7 +11,7 @@ import (
 
 // NGramProcessor implements FileProcessor for n-gram model building
 type NGramProcessor struct {
-	ngramService *service.NGramService
+	ngramService *ngram.NGramService
 	logger       *zap.Logger
 	n            int  // N-gram size (e.g., 3 for trigrams)
 	override     bool // Whether to override existing models
@@ -19,7 +19,7 @@ type NGramProcessor struct {
 }
 
 // NewNGramProcessor creates a new n-gram processor
-func NewNGramProcessor(ngramService *service.NGramService, n int, override bool, logger *zap.Logger) *NGramProcessor {
+func NewNGramProcessor(ngramService *ngram.NGramService, n int, override bool, logger *zap.Logger) *NGramProcessor {
 	return &NGramProcessor{
 		ngramService: ngramService,
 		logger:       logger,

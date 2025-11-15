@@ -1,4 +1,4 @@
-package service
+package ngram
 
 import (
 	"bot-go/internal/config"
@@ -17,9 +17,9 @@ import (
 
 // NGramService orchestrates n-gram model building for repositories
 type NGramService struct {
-	corpusManagers map[string]*CorpusManager        // repo name -> corpus manager
+	corpusManagers map[string]*CorpusManager // repo name -> corpus manager
 	registry       *tokenizer.TokenizerRegistry
-	persistence    *NGramPersistence                // Model persistence
+	persistence    *NGramPersistence // Model persistence
 	logger         *zap.Logger
 	mu             sync.RWMutex
 }
@@ -503,12 +503,12 @@ type CodeAnalysis struct {
 
 // ZScoreAnalysis contains z-score analysis results
 type ZScoreAnalysis struct {
-	TokenCount     int                    `json:"token_count"`
-	Entropy        float64                `json:"entropy"`
-	ZScore         float64                `json:"z_score"`
-	EntropyStats   EntropyStats           `json:"entropy_stats"`
-	NGramScores    []NGramScoreDetail     `json:"ngram_scores"`
-	Interpretation ZScoreInterpretation   `json:"interpretation"`
+	TokenCount     int                  `json:"token_count"`
+	Entropy        float64              `json:"entropy"`
+	ZScore         float64              `json:"z_score"`
+	EntropyStats   EntropyStats         `json:"entropy_stats"`
+	NGramScores    []NGramScoreDetail   `json:"ngram_scores"`
+	Interpretation ZScoreInterpretation `json:"interpretation"`
 }
 
 // NGramScoreDetail contains detailed information about a single n-gram
@@ -521,7 +521,7 @@ type NGramScoreDetail struct {
 
 // ZScoreInterpretation provides human-readable interpretation of z-score
 type ZScoreInterpretation struct {
-	Level       string  `json:"level"`       // "very_low", "low", "normal", "high", "very_high"
+	Level       string  `json:"level"` // "very_low", "low", "normal", "high", "very_high"
 	Description string  `json:"description"`
-	Percentile  float64 `json:"percentile"`  // Approximate percentile in corpus
+	Percentile  float64 `json:"percentile"` // Approximate percentile in corpus
 }

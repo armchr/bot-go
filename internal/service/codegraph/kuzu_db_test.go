@@ -1,4 +1,4 @@
-package service
+package codegraph
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 
 func TestKuzuDatabase_BasicFunctionality(t *testing.T) {
 	logger := zap.NewNop()
-	
+
 	// Create in-memory database
 	db, err := NewKuzuDatabase(":memory:", logger)
 	if err != nil {
@@ -42,7 +42,7 @@ func TestKuzuDatabase_BasicFunctionality(t *testing.T) {
 
 func TestKuzuDatabase_SingleRecordOperations(t *testing.T) {
 	logger := zap.NewNop()
-	
+
 	db, err := NewKuzuDatabase(":memory:", logger)
 	if err != nil {
 		t.Fatalf("Failed to create Kuzu database: %v", err)
@@ -68,7 +68,7 @@ func TestKuzuDatabase_SingleRecordOperations(t *testing.T) {
 
 func TestKuzuDatabase_ErrorHandling(t *testing.T) {
 	logger := zap.NewNop()
-	
+
 	db, err := NewKuzuDatabase(":memory:", logger)
 	if err != nil {
 		t.Fatalf("Failed to create Kuzu database: %v", err)

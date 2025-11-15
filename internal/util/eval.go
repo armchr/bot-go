@@ -13,15 +13,15 @@ import (
 
 // EvalMetadata represents the structure of metadata.json in test cases
 type EvalMetadata struct {
-	TestCaseID      string          `json:"test_case_id"`
-	Name            string          `json:"name"`
-	Description     string          `json:"description"`
-	Type            string          `json:"type"` // "similar" or "different"
-	SimilarityLevel string          `json:"similarity_level"`
-	Snippets        []SnippetInfo   `json:"snippets"`
-	SimilarPairs    [][]string      `json:"similar_pairs"`
-	DifferentPairs  [][]string      `json:"different_pairs"`
-	Notes           string          `json:"notes"`
+	TestCaseID      string        `json:"test_case_id"`
+	Name            string        `json:"name"`
+	Description     string        `json:"description"`
+	Type            string        `json:"type"` // "similar" or "different"
+	SimilarityLevel string        `json:"similarity_level"`
+	Snippets        []SnippetInfo `json:"snippets"`
+	SimilarPairs    [][]string    `json:"similar_pairs"`
+	DifferentPairs  [][]string    `json:"different_pairs"`
+	Notes           string        `json:"notes"`
 }
 
 // SnippetInfo contains metadata about a code snippet

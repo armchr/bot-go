@@ -2,10 +2,10 @@ package ngram
 
 // Token represents a single lexical token in source code
 type Token struct {
-	Type    string // Token type (e.g., "IDENTIFIER", "KEYWORD", "LITERAL", etc.)
-	Value   string // Original token value
-	Line    int    // Line number in source
-	Column  int    // Column number in source
+	Type   string // Token type (e.g., "IDENTIFIER", "KEYWORD", "LITERAL", etc.)
+	Value  string // Original token value
+	Line   int    // Line number in source
+	Column int    // Column number in source
 }
 
 // TokenSequence is a slice of tokens

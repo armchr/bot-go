@@ -1,4 +1,4 @@
-package service
+package ngram
 
 import (
 	"bot-go/internal/service/tokenizer"
@@ -13,28 +13,28 @@ import (
 
 // SerializableNGramModel is a serializable representation of the n-gram model (always Trie+Bloom)
 type SerializableNGramModel struct {
-	Version       string                 // Format version
-	N             int                    // N-gram size
-	TotalTokens   int64                  // Total tokens processed
-	CreatedAt     time.Time              // When the model was created
-	RepoName      string                 // Repository name
-	SmootherName  string                 // Smoother type
+	Version      string    // Format version
+	N            int       // N-gram size
+	TotalTokens  int64     // Total tokens processed
+	CreatedAt    time.Time // When the model was created
+	RepoName     string    // Repository name
+	SmootherName string    // Smoother type
 
 	// File-level metadata (for GetStats)
-	FileMetadata  map[string]FileMetadata // path -> metadata
+	FileMetadata map[string]FileMetadata // path -> metadata
 
 	// Trie-based model data
-	TokenToID     map[string]uint32      // String interning map
-	IDToToken     []string               // Reverse lookup
-	TrieNodes     []SerializableTrieNode // Flattened trie structure
-	VocabNodes    []SerializableTrieNode // Vocabulary trie
-	ContextNodes  []SerializableTrieNode // Context trie
+	TokenToID    map[string]uint32      // String interning map
+	IDToToken    []string               // Reverse lookup
+	TrieNodes    []SerializableTrieNode // Flattened trie structure
+	VocabNodes   []SerializableTrieNode // Vocabulary trie
+	ContextNodes []SerializableTrieNode // Context trie
 
 	// Trie counters
-	NGramTrieTotalNGrams    int64  // Total n-grams in ngramTrie
-	NGramTrieTotalTokens    int64  // Total tokens in ngramTrie
-	ContextTrieTotalNGrams  int64  // Total n-grams in contextTrie
-	ContextTrieTotalTokens  int64  // Total tokens in contextTrie
+	NGramTrieTotalNGrams   int64 // Total n-grams in ngramTrie
+	NGramTrieTotalTokens   int64 // Total tokens in ngramTrie
+	ContextTrieTotalNGrams int64 // Total n-grams in contextTrie
+	ContextTrieTotalTokens int64 // Total tokens in contextTrie
 }
 
 // FileMetadata stores minimal file information for statistics
@@ -47,11 +47,11 @@ type FileMetadata struct {
 
 // SerializableTrieNode represents a serialized trie node
 type SerializableTrieNode struct {
-	ID          int               // Node ID in serialized form
-	TokenID     uint32            // Token ID
-	Count       int64             // Frequency
-	ChildrenIDs map[uint32]int    // TokenID -> child node ID
-	ParentID    int               // Parent node ID (-1 for root)
+	ID          int            // Node ID in serialized form
+	TokenID     uint32         // Token ID
+	Count       int64          // Frequency
+	ChildrenIDs map[uint32]int // TokenID -> child node ID
+	ParentID    int            // Parent node ID (-1 for root)
 }
 
 // NGramPersistence handles saving and loading n-gram models

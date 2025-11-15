@@ -1,13 +1,13 @@
 package controller
 
 import (
+	"bot-go/internal/service/codegraph"
 	"context"
 	"fmt"
 
 	"bot-go/internal/config"
 	"bot-go/internal/model"
 	"bot-go/internal/model/ast"
-	"bot-go/internal/service"
 	"bot-go/internal/util"
 	"bot-go/pkg/lsp"
 	"bot-go/pkg/lsp/base"
@@ -16,12 +16,12 @@ import (
 )
 
 type PostProcessor struct {
-	codeGraph  *service.CodeGraph
+	codeGraph  *codegraph.CodeGraph
 	lspService *lsp.LspService
 	logger     *zap.Logger
 }
 
-func NewPostProcessor(codeGraph *service.CodeGraph, lspService *lsp.LspService, logger *zap.Logger) *PostProcessor {
+func NewPostProcessor(codeGraph *codegraph.CodeGraph, lspService *lsp.LspService, logger *zap.Logger) *PostProcessor {
 	return &PostProcessor{
 		codeGraph:  codeGraph,
 		lspService: lspService,

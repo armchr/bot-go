@@ -1,4 +1,4 @@
-package service
+package codegraph
 
 import (
 	"context"
@@ -54,7 +54,7 @@ func (db *Neo4jDatabase) ExecuteRead(ctx context.Context, query string, params m
 		for result.Next(ctx) {
 			recordMap := make(map[string]any)
 			record := result.Record()
-			
+
 			for _, key := range record.Keys {
 				value, _ := record.Get(key)
 				// Convert Neo4j nodes to property maps
@@ -97,7 +97,7 @@ func (db *Neo4jDatabase) ExecuteWrite(ctx context.Context, query string, params 
 		for result.Next(ctx) {
 			recordMap := make(map[string]any)
 			record := result.Record()
-			
+
 			for _, key := range record.Keys {
 				value, _ := record.Get(key)
 				// Convert Neo4j nodes to property maps

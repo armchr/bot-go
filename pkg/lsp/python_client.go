@@ -54,7 +54,6 @@ func (t *PythonLanguageServerClient) SymbolPartToMatch(name string) string {
 	return base.LastSegment(name)
 }
 
-
 // GetCallHierarchy implements call hierarchy using textDocument/references as fallback
 // since pylsp doesn't support textDocument/prepareCallHierarchy
 /*

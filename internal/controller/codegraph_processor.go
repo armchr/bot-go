@@ -4,6 +4,7 @@ import (
 	"bot-go/internal/config"
 	"bot-go/internal/parse"
 	"bot-go/internal/service"
+	"bot-go/internal/service/codegraph"
 	"context"
 	"os"
 	"sync"
@@ -15,7 +16,7 @@ import (
 // CodeGraphProcessor implements FileProcessor for code graph building
 type CodeGraphProcessor struct {
 	config      *config.Config
-	codeGraph   *service.CodeGraph
+	codeGraph   *codegraph.CodeGraph
 	repoService *service.RepoService
 	logger      *zap.Logger
 	fileIDMutex sync.Mutex
@@ -24,7 +25,7 @@ type CodeGraphProcessor struct {
 // NewCodeGraphProcessor creates a new code graph processor
 func NewCodeGraphProcessor(
 	config *config.Config,
-	codeGraph *service.CodeGraph,
+	codeGraph *codegraph.CodeGraph,
 	repoService *service.RepoService,
 	logger *zap.Logger,
 ) *CodeGraphProcessor {

@@ -1,10 +1,10 @@
 package tokenizer
 
 import (
-	"sync"
 	"bot-go/internal/model/ngram"
 	"context"
 	"fmt"
+	"sync"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"

@@ -147,7 +147,7 @@ func (s *CodeGraphServer) formatCallGraph(ctx context.Context, repoName string, 
 	// Collect all unique functions from the call graph
 	allFunctions := make([]model.FunctionDefinition, 0)
 	functionMap := make(map[string]bool)
-	
+
 	// Add root functions
 	for _, root := range cg.Roots {
 		key := root.ToKey()
@@ -156,7 +156,7 @@ func (s *CodeGraphServer) formatCallGraph(ctx context.Context, repoName string, 
 			functionMap[key] = true
 		}
 	}
-	
+
 	// Add all other functions from edges
 	for _, fn := range cg.Functions {
 		key := fn.ToKey()
@@ -173,7 +173,7 @@ func (s *CodeGraphServer) formatCallGraph(ctx context.Context, repoName string, 
 		// Create empty hover strings as fallback
 		hoverStrings = make([]string, len(allFunctions))
 	}
-	
+
 	// Create hover lookup map
 	hoverMap := make(map[string]string)
 	for i, fn := range allFunctions {
@@ -261,7 +261,7 @@ func (s *CodeGraphServer) formatCallerGraph(ctx context.Context, repoName string
 	// Collect all unique functions from the call graph
 	allFunctions := make([]model.FunctionDefinition, 0)
 	functionMap := make(map[string]bool)
-	
+
 	// Add root functions
 	for _, root := range cg.Roots {
 		key := root.ToKey()
@@ -270,7 +270,7 @@ func (s *CodeGraphServer) formatCallerGraph(ctx context.Context, repoName string
 			functionMap[key] = true
 		}
 	}
-	
+
 	// Add all other functions from edges
 	for _, fn := range cg.Functions {
 		key := fn.ToKey()
@@ -287,7 +287,7 @@ func (s *CodeGraphServer) formatCallerGraph(ctx context.Context, repoName string
 		// Create empty hover strings as fallback
 		hoverStrings = make([]string, len(allFunctions))
 	}
-	
+
 	// Create hover lookup map
 	hoverMap := make(map[string]string)
 	for i, fn := range allFunctions {

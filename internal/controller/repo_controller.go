@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"bot-go/internal/service/ngram"
+	"bot-go/internal/service/vector"
 	"fmt"
 	"net/http"
 
@@ -13,12 +15,12 @@ import (
 
 type RepoController struct {
 	repoService  *service.RepoService
-	chunkService *service.CodeChunkService
-	ngramService *service.NGramService
+	chunkService *vector.CodeChunkService
+	ngramService *ngram.NGramService
 	logger       *zap.Logger
 }
 
-func NewRepoController(repoService *service.RepoService, chunkService *service.CodeChunkService, ngramService *service.NGramService, logger *zap.Logger) *RepoController {
+func NewRepoController(repoService *service.RepoService, chunkService *vector.CodeChunkService, ngramService *ngram.NGramService, logger *zap.Logger) *RepoController {
 	return &RepoController{
 		repoService:  repoService,
 		chunkService: chunkService,
@@ -543,14 +545,14 @@ func (rc *RepoController) GetNGramStats(c *gin.Context) {
 	}
 
 	response := model.GetNGramStatsResponse{
-		RepoName:        request.RepoName,
-		N:               stats.GlobalModel.N,
-		TotalFiles:      stats.TotalFiles,
-		TotalTokens:     stats.TotalTokens,
-		VocabularySize:  stats.GlobalModel.VocabularySize,
-		NGramCount:      stats.GlobalModel.NGramCount,
-		AverageEntropy:  stats.AverageEntropy,
-		LanguageCounts:  stats.LanguageCounts,
+		RepoName:       request.RepoName,
+		N:              stats.GlobalModel.N,
+		TotalFiles:     stats.TotalFiles,
+		TotalTokens:    stats.TotalTokens,
+		VocabularySize: stats.GlobalModel.VocabularySize,
+		NGramCount:     stats.GlobalModel.NGramCount,
+		AverageEntropy: stats.AverageEntropy,
+		LanguageCounts: stats.LanguageCounts,
 	}
 
 	c.JSON(http.StatusOK, response)

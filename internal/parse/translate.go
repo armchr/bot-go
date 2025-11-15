@@ -2,7 +2,7 @@ package parse
 
 import (
 	"bot-go/internal/model/ast"
-	"bot-go/internal/service"
+	"bot-go/internal/service/codegraph"
 	"bot-go/pkg/lsp/base"
 	"context"
 	"fmt"
@@ -136,14 +136,14 @@ type TranslateFromSyntaxTree struct {
 	FileID       int32
 	Version      int32
 	NodeIDSeq    uint32
-	CodeGraph    *service.CodeGraph
+	CodeGraph    *codegraph.CodeGraph
 	FileContent  []byte
 	Visitor      SyntaxTreeVisitor
 	Logger       *zap.Logger
 	Nodes        map[ast.NodeID]*ast.Node
 }
 
-func NewTranslateFromSyntaxTree(fileID int32, version int32, codeGraph *service.CodeGraph,
+func NewTranslateFromSyntaxTree(fileID int32, version int32, codeGraph *codegraph.CodeGraph,
 	fileContent []byte,
 	logger *zap.Logger) *TranslateFromSyntaxTree {
 	globalScope := NewScope(nil, false)

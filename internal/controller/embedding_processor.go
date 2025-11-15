@@ -2,7 +2,7 @@ package controller
 
 import (
 	"bot-go/internal/config"
-	"bot-go/internal/service"
+	"bot-go/internal/service/vector"
 	"context"
 	"sync/atomic"
 
@@ -11,13 +11,13 @@ import (
 
 // EmbeddingProcessor implements FileProcessor for code chunk embeddings
 type EmbeddingProcessor struct {
-	chunkService *service.CodeChunkService
+	chunkService *vector.CodeChunkService
 	logger       *zap.Logger
 	chunkCount   atomic.Int64
 }
 
 // NewEmbeddingProcessor creates a new embedding processor
-func NewEmbeddingProcessor(chunkService *service.CodeChunkService, logger *zap.Logger) *EmbeddingProcessor {
+func NewEmbeddingProcessor(chunkService *vector.CodeChunkService, logger *zap.Logger) *EmbeddingProcessor {
 	return &EmbeddingProcessor{
 		chunkService: chunkService,
 		logger:       logger,

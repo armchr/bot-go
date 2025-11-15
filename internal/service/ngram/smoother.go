@@ -1,4 +1,4 @@
-package service
+package ngram
 
 // Smoother defines the interface for n-gram probability smoothing algorithms
 type Smoother interface {

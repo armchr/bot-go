@@ -1,4 +1,4 @@
-package service
+package codegraph
 
 import (
 	"context"
@@ -508,13 +508,13 @@ func (cg *CodeGraph) readNodes(ctx context.Context, nodeType ast.NodeType, query
 		if !ok || nodeData == nil {
 			continue
 		}
-		
+
 		// Convert map to our GraphNode interface and then to ast.Node
 		nodeMap, ok := nodeData.(map[string]any)
 		if !ok {
 			continue
 		}
-		
+
 		node, err := cg.recordToNode(nodeMap)
 		if err != nil {
 			return nil, err
@@ -704,17 +704,17 @@ func (cg *CodeGraph) FindFunctionCalls(ctx context.Context, fileID ast.NodeID) (
 		if !ok || fcData == nil {
 			continue
 		}
-		
+
 		fcMap, ok := fcData.(map[string]any)
 		if !ok {
 			continue
 		}
-		
+
 		node, err := cg.recordToNode(fcMap)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert record to node: %w", err)
 		}
-		
+
 		functionId, ok := record["functionId"]
 		if !ok {
 			continue

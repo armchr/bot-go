@@ -1,4 +1,4 @@
-package service
+package ngram
 
 import (
 	"hash/fnv"
@@ -25,15 +25,15 @@ func NewTrieNode(tokenID uint32) *TrieNode {
 
 // NGramTrie stores n-grams in a trie structure with string interning
 type NGramTrie struct {
-	root          *TrieNode          // Root of the trie
-	tokenToID     map[string]uint32  // String to token ID mapping
-	idToToken     []string           // Token ID to string reverse mapping
-	nextID        uint32             // Next available token ID
-	totalTokens   int64              // Total number of tokens seen
-	totalNGrams   int64              // Total number of n-grams stored
-	bloomFilter   *bloom.BloomFilter // Bloom filter for singleton detection
-	useBloom      bool               // Whether to use bloom filter for singletons
-	mu            sync.RWMutex       // Protects all data structures
+	root        *TrieNode          // Root of the trie
+	tokenToID   map[string]uint32  // String to token ID mapping
+	idToToken   []string           // Token ID to string reverse mapping
+	nextID      uint32             // Next available token ID
+	totalTokens int64              // Total number of tokens seen
+	totalNGrams int64              // Total number of n-grams stored
+	bloomFilter *bloom.BloomFilter // Bloom filter for singleton detection
+	useBloom    bool               // Whether to use bloom filter for singletons
+	mu          sync.RWMutex       // Protects all data structures
 }
 
 // NewNGramTrie creates a new n-gram trie without bloom filter

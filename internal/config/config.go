@@ -65,9 +65,9 @@ type ChunkingConfig struct {
 }
 
 type BloomFilterConfig struct {
-	Enabled         bool    `yaml:"enabled"`
-	StorageDir      string  `yaml:"storage_dir"`
-	ExpectedItems   uint    `yaml:"expected_items"`
+	Enabled           bool    `yaml:"enabled"`
+	StorageDir        string  `yaml:"storage_dir"`
+	ExpectedItems     uint    `yaml:"expected_items"`
 	FalsePositiveRate float64 `yaml:"false_positive_rate"`
 }
 

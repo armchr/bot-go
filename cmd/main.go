@@ -12,6 +12,9 @@ import (
 	"bot-go/internal/controller"
 	"bot-go/internal/handler"
 	"bot-go/internal/service"
+	"bot-go/internal/service/codegraph"
+	"bot-go/internal/service/ngram"
+	"bot-go/internal/service/vector"
 	"bot-go/pkg/lsp"
 	"bot-go/pkg/mcp"
 
@@ -81,18 +84,18 @@ func main() {
 	CodeGraphEntry(cfg, logger, repoService)
 
 	// Initialize CodeChunkService if Qdrant and Ollama are configured
-	var chunkService *service.CodeChunkService
+	var chunkService *vector.CodeChunkService
 	if cfg.Qdrant.Host != "" && cfg.Ollama.URL != "" {
 		logger.Info("Initializing code chunk service",
 			zap.String("qdrant_host", cfg.Qdrant.Host),
 			zap.Int("qdrant_port", cfg.Qdrant.Port),
 			zap.String("ollama_url", cfg.Ollama.URL))
 
-		vectorDB, err := service.NewQdrantDatabase(cfg.Qdrant.Host, cfg.Qdrant.Port, cfg.Qdrant.APIKey, logger)
+		vectorDB, err := vector.NewQdrantDatabase(cfg.Qdrant.Host, cfg.Qdrant.Port, cfg.Qdrant.APIKey, logger)
 		if err != nil {
 			logger.Warn("Failed to initialize Qdrant database, code chunking will be disabled", zap.Error(err))
 		} else {
-			embeddingModel, err := service.NewOllamaEmbedding(service.OllamaEmbeddingConfig{
+			embeddingModel, err := vector.NewOllamaEmbedding(vector.OllamaEmbeddingConfig{
 				APIURL:    cfg.Ollama.URL,
 				APIKey:    cfg.Ollama.APIKey,
 				Model:     cfg.Ollama.Model,
@@ -122,7 +125,7 @@ func main() {
 					numFileThreads = 2 // default
 				}
 
-				chunkService = service.NewCodeChunkService(
+				chunkService = vector.NewCodeChunkService(
 					vectorDB,
 					embeddingModel,
 					minConditionalLines,
@@ -142,7 +145,7 @@ func main() {
 	}
 
 	// Initialize NGramService
-	ngramService, err := service.NewNGramService(logger)
+	ngramService, err := ngram.NewNGramService(logger)
 	if err != nil {
 		logger.Warn("Failed to initialize N-gram service", zap.Error(err))
 	} else {
@@ -195,10 +198,10 @@ func BuildIndexCommand(cfg *config.Config, logger *zap.Logger, repoNames []strin
 	var processors []controller.FileProcessor
 
 	// Initialize CodeGraph processor if enabled
-	var codeGraph *service.CodeGraph
+	var codeGraph *codegraph.CodeGraph
 	if cfg.IndexBuilding.EnableCodeGraph {
 		var err error
-		codeGraph, err = service.NewCodeGraph(
+		codeGraph, err = codegraph.NewCodeGraph(
 			cfg.Neo4j.URI,
 			cfg.Neo4j.Username,
 			cfg.Neo4j.Password,
@@ -227,14 +230,14 @@ func BuildIndexCommand(cfg *config.Config, logger *zap.Logger, repoNames []strin
 			return
 		}
 
-		vectorDB, err := service.NewQdrantDatabase(cfg.Qdrant.Host, cfg.Qdrant.Port, cfg.Qdrant.APIKey, logger)
+		vectorDB, err := vector.NewQdrantDatabase(cfg.Qdrant.Host, cfg.Qdrant.Port, cfg.Qdrant.APIKey, logger)
 		if err != nil {
 			logger.Fatal("Failed to initialize Qdrant database", zap.Error(err))
 			return
 		}
 		defer vectorDB.Close()
 
-		embeddingModel, err := service.NewOllamaEmbedding(service.OllamaEmbeddingConfig{
+		embeddingModel, err := vector.NewOllamaEmbedding(vector.OllamaEmbeddingConfig{
 			APIURL:    cfg.Ollama.URL,
 			APIKey:    cfg.Ollama.APIKey,
 			Model:     cfg.Ollama.Model,
@@ -265,7 +268,7 @@ func BuildIndexCommand(cfg *config.Config, logger *zap.Logger, repoNames []strin
 			numFileThreads = 2
 		}
 
-		chunkService := service.NewCodeChunkService(
+		chunkService := vector.NewCodeChunkService(
 			vectorDB,
 			embeddingModel,
 			minConditionalLines,
@@ -283,7 +286,7 @@ func BuildIndexCommand(cfg *config.Config, logger *zap.Logger, repoNames []strin
 
 	// Initialize NGram processor if enabled
 	if cfg.IndexBuilding.EnableNgram {
-		ngramService, err := service.NewNGramService(logger)
+		ngramService, err := ngram.NewNGramService(logger)
 		if err != nil {
 			logger.Fatal("Failed to initialize N-gram service", zap.Error(err))
 			return
@@ -342,7 +345,7 @@ func CodeGraphEntry(cfg *config.Config, logger *zap.Logger, repoService *service
 	ctx := context.Background()
 
 	// Initialize CodeGraph service
-	codeGraph, err := service.NewCodeGraph(
+	codeGraph, err := codegraph.NewCodeGraph(
 		cfg.Neo4j.URI,
 		cfg.Neo4j.Username,
 		cfg.Neo4j.Password,

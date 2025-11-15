@@ -327,14 +327,14 @@ type GetNGramStatsRequest struct {
 }
 
 type GetNGramStatsResponse struct {
-	RepoName        string         `json:"repo_name"`
-	N               int            `json:"n"`
-	TotalFiles      int            `json:"total_files"`
-	TotalTokens     int            `json:"total_tokens"`
-	VocabularySize  int            `json:"vocabulary_size"`
-	NGramCount      int            `json:"ngram_count"`
-	AverageEntropy  float64        `json:"average_entropy"`
-	LanguageCounts  map[string]int `json:"language_counts"`
+	RepoName       string         `json:"repo_name"`
+	N              int            `json:"n"`
+	TotalFiles     int            `json:"total_files"`
+	TotalTokens    int            `json:"total_tokens"`
+	VocabularySize int            `json:"vocabulary_size"`
+	NGramCount     int            `json:"ngram_count"`
+	AverageEntropy float64        `json:"average_entropy"`
+	LanguageCounts map[string]int `json:"language_counts"`
 }
 
 type GetFileEntropyRequest struct {
@@ -395,7 +395,7 @@ type NGramScore struct {
 }
 
 type ZScoreInterpretation struct {
-	Level       string `json:"level"`        // "very_low", "low", "normal", "high", "very_high"
-	Description string `json:"description"`
-	Percentile  float64 `json:"percentile"`  // Approximate percentile in corpus
+	Level       string  `json:"level"` // "very_low", "low", "normal", "high", "very_high"
+	Description string  `json:"description"`
+	Percentile  float64 `json:"percentile"` // Approximate percentile in corpus
 }

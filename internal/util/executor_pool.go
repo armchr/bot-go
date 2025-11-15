@@ -23,7 +23,7 @@ func NewExecutorPool[T any](maxConcurrent int, bufferSize int, workerFunc func(T
 		workerSem:     make(chan struct{}, maxConcurrent),
 		done:          make(chan struct{}),
 	}
-	
+
 	pool.start()
 	return pool
 }
@@ -34,7 +34,7 @@ func (p *ExecutorPool[T]) start() {
 		for item := range p.buffer {
 			p.workerSem <- struct{}{}
 			p.wg.Add(1)
-			
+
 			go func(data T) {
 				defer func() {
 					<-p.workerSem
@@ -50,11 +50,11 @@ func (p *ExecutorPool[T]) start() {
 func (p *ExecutorPool[T]) Submit(item T) {
 	p.closeMutex.Lock()
 	defer p.closeMutex.Unlock()
-	
+
 	if p.closed {
 		return
 	}
-	
+
 	p.buffer <- item
 }
 
@@ -64,10 +64,10 @@ func (p *ExecutorPool[T]) Close() {
 		p.closeMutex.Unlock()
 		return
 	}
-	
+
 	p.closed = true
 	close(p.buffer)
 	p.closeMutex.Unlock()
-	
+
 	<-p.done
 }
