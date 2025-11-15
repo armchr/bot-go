@@ -358,19 +358,34 @@ func CodeGraphEntry(cfg *config.Config, logger *zap.Logger, repoService *service
 	}
 	//defer codeGraph.Close(ctx)
 
-	// Initialize RepoProcessor
-	repoProcessor := controller.NewRepoProcessor(cfg, codeGraph, logger)
-	repoProcessor.SetRepoService(repoService) // Set repo service for LSP post-processing
-	postProcessor := controller.NewPostProcessor(codeGraph, repoService.GetLspService(), logger)
+	// Initialize CodeGraphProcessor
+	codeGraphProcessor := controller.NewCodeGraphProcessor(cfg, codeGraph, repoService, logger)
+
+	// Create IndexBuilder with only CodeGraph processor
+	processors := []controller.FileProcessor{codeGraphProcessor}
+	indexBuilder := controller.NewIndexBuilder(cfg, processors, logger)
 
 	// Start processing repositories in a goroutine
 	go func() {
 		logger.Info("Starting repository processing thread")
-		err := repoProcessor.ProcessAllRepositories(ctx, postProcessor)
 
-		if err != nil {
-			logger.Error("Repository processing failed", zap.Error(err))
+		for _, repo := range cfg.Source.Repositories {
+			if repo.Disabled {
+				logger.Info("Skipping disabled repository", zap.String("name", repo.Name))
+				continue
+			}
+
+			logger.Info("Processing repository", zap.String("name", repo.Name))
+			err := indexBuilder.BuildIndex(ctx, &repo)
+			if err != nil {
+				logger.Error("Failed to process repository",
+					zap.String("name", repo.Name),
+					zap.Error(err))
+				continue
+			}
+			logger.Info("Completed processing repository", zap.String("name", repo.Name))
 		}
+
 		logger.Info("Repository processing thread completed")
 	}()
 }
