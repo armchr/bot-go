@@ -5,7 +5,6 @@ import (
 	"bot-go/internal/util"
 	"context"
 	"fmt"
-	"os"
 	"sync"
 
 	"go.uber.org/zap"
@@ -30,6 +29,11 @@ func NewIndexBuilder(config *config.Config, processors []FileProcessor, logger *
 
 // BuildIndex processes a repository through all registered processors
 func (ib *IndexBuilder) BuildIndex(ctx context.Context, repo *config.Repository) error {
+	return ib.BuildIndexWithGitInfo(ctx, repo, false, nil)
+}
+
+// BuildIndexWithGitInfo processes a repository with optional git HEAD optimization
+func (ib *IndexBuilder) BuildIndexWithGitInfo(ctx context.Context, repo *config.Repository, useHead bool, gitInfo *util.GitInfo) error {
 	if len(ib.processors) == 0 {
 		ib.logger.Warn("No processors registered, skipping index building",
 			zap.String("repo_name", repo.Name))
@@ -48,8 +52,16 @@ func (ib *IndexBuilder) BuildIndex(ctx context.Context, repo *config.Repository)
 	}
 	ib.logger.Info("Active processors", zap.Strings("processors", processorNames))
 
+	// Log git info if using HEAD
+	if useHead && gitInfo != nil && gitInfo.IsGitRepo {
+		ib.logger.Info("Using git HEAD for index building",
+			zap.String("commit_sha", gitInfo.HeadCommitSHA),
+			zap.String("commit_msg", gitInfo.HeadCommitMsg),
+			zap.Int("modified_files", len(gitInfo.ModifiedFiles)))
+	}
+
 	// Phase 1: Process all files in parallel
-	err := ib.processFiles(ctx, repo)
+	err := ib.processFiles(ctx, repo, useHead, gitInfo)
 	if err != nil {
 		return fmt.Errorf("failed to process files for repository %s: %w", repo.Name, err)
 	}
@@ -66,12 +78,14 @@ func (ib *IndexBuilder) BuildIndex(ctx context.Context, repo *config.Repository)
 }
 
 // processFiles walks the repository directory and processes each file through all processors in parallel
-func (ib *IndexBuilder) processFiles(ctx context.Context, repo *config.Repository) error {
+func (ib *IndexBuilder) processFiles(ctx context.Context, repo *config.Repository, useHead bool, gitInfo *util.GitInfo) error {
 	ib.logger.Info("Processing files",
 		zap.String("repo_name", repo.Name),
 		zap.String("path", repo.Path))
 
 	fileCount := 0
+	filesFromGit := 0
+	filesFromDisk := 0
 	var mu sync.Mutex
 
 	// Get configuration for WalkDirTree
@@ -110,10 +124,22 @@ func (ib *IndexBuilder) processFiles(ctx context.Context, repo *config.Repositor
 		}
 
 		// Read file content once, centrally
-		content, err := os.ReadFile(filePath)
+		// Use optimized reading if useHead is enabled (read from git HEAD for unmodified files)
+		content, err := util.ReadFileOptimized(repo.Path, filePath, useHead, gitInfo)
 		if err != nil {
 			ib.logger.Error("Failed to read file", zap.String("path", filePath), zap.Error(err))
 			return nil // Continue processing other files
+		}
+
+		// Track source of file content for logging
+		if useHead && gitInfo != nil && gitInfo.IsGitRepo {
+			mu.Lock()
+			if util.IsFileModified(gitInfo, filePath) {
+				filesFromDisk++
+			} else {
+				filesFromGit++
+			}
+			mu.Unlock()
 		}
 
 		// Process the file through all processors in parallel
@@ -146,9 +172,17 @@ func (ib *IndexBuilder) processFiles(ctx context.Context, repo *config.Repositor
 		return fmt.Errorf("failed to walk directory tree: %w", err)
 	}
 
-	ib.logger.Info("Completed file processing",
-		zap.String("repo_name", repo.Name),
-		zap.Int("files_processed", fileCount))
+	if useHead && gitInfo != nil && gitInfo.IsGitRepo {
+		ib.logger.Info("Completed file processing",
+			zap.String("repo_name", repo.Name),
+			zap.Int("files_processed", fileCount),
+			zap.Int("files_from_git_head", filesFromGit),
+			zap.Int("files_from_disk", filesFromDisk))
+	} else {
+		ib.logger.Info("Completed file processing",
+			zap.String("repo_name", repo.Name),
+			zap.Int("files_processed", fileCount))
+	}
 
 	return nil
 }

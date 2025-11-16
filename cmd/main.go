@@ -15,6 +15,7 @@ import (
 	"bot-go/internal/service/codegraph"
 	"bot-go/internal/service/ngram"
 	"bot-go/internal/service/vector"
+	"bot-go/internal/util"
 	"bot-go/pkg/lsp"
 	"bot-go/pkg/mcp"
 
@@ -42,6 +43,7 @@ func main() {
 	var test = flag.Bool("test", false, "Run in test mode")
 	var buildIndex stringSliceFlag
 	flag.Var(&buildIndex, "build-index", "Repository name to build index for (can be specified multiple times)")
+	var useHead = flag.Bool("head", false, "Use git HEAD version instead of working directory (only valid with --build-index)")
 	flag.Parse()
 
 	//logger, err := zap.NewProduction()
@@ -76,8 +78,13 @@ func main() {
 	// Check if we're in CLI mode (build-index specified)
 	if len(buildIndex) > 0 {
 		logger.Info("Running in CLI mode - build-index")
-		BuildIndexCommand(cfg, logger, buildIndex)
+		BuildIndexCommand(cfg, logger, buildIndex, *useHead)
 		return
+	}
+
+	// Validate --head flag usage
+	if *useHead {
+		logger.Fatal("--head flag is only valid with --build-index")
 	}
 
 	repoService := service.NewRepoService(cfg, logger)
@@ -185,11 +192,12 @@ func LSPTest(cfg *config.Config, logger *zap.Logger) {
 	baseClient.TestCommand(ctx)
 }
 
-func BuildIndexCommand(cfg *config.Config, logger *zap.Logger, repoNames []string) {
+func BuildIndexCommand(cfg *config.Config, logger *zap.Logger, repoNames []string, useHead bool) {
 	ctx := context.Background()
 
 	logger.Info("Build index command started",
 		zap.Strings("repositories", repoNames),
+		zap.Bool("use_head", useHead),
 		zap.Bool("code_graph_enabled", cfg.IndexBuilding.EnableCodeGraph),
 		zap.Bool("embeddings_enabled", cfg.IndexBuilding.EnableEmbeddings),
 		zap.Bool("ngram_enabled", cfg.IndexBuilding.EnableNgram))
@@ -322,8 +330,26 @@ func BuildIndexCommand(cfg *config.Config, logger *zap.Logger, repoNames []strin
 			zap.String("path", repo.Path),
 			zap.String("language", repo.Language))
 
+		// Get git info if using HEAD mode
+		var gitInfo *util.GitInfo
+		if useHead {
+			gitInfo, err = util.GetGitInfo(repo.Path)
+			if err != nil {
+				logger.Error("Failed to get git info",
+					zap.String("repo_name", repo.Name),
+					zap.Error(err))
+				continue
+			}
+			if !gitInfo.IsGitRepo {
+				logger.Error("Repository is not a git repository, cannot use --head flag",
+					zap.String("repo_name", repo.Name),
+					zap.String("path", repo.Path))
+				continue
+			}
+		}
+
 		// Build all indexes using the unified index builder
-		if err := indexBuilder.BuildIndex(ctx, repo); err != nil {
+		if err := indexBuilder.BuildIndexWithGitInfo(ctx, repo, useHead, gitInfo); err != nil {
 			logger.Error("Failed to build indexes for repository",
 				zap.String("repo_name", repo.Name),
 				zap.Error(err))
