@@ -3,7 +3,7 @@ package codegraph
 import (
 	"context"
 	"fmt"
-	"maps"
+	"strings"
 
 	"bot-go/internal/config"
 	"bot-go/internal/model/ast"
@@ -81,24 +81,21 @@ func (cg *CodeGraph) dbRecordToNode(record GraphNode) (*ast.Node, error) {
 }
 
 func (cg *CodeGraph) recordToNode(record map[string]any) (*ast.Node, error) {
-	id, _ := record["id"]
-	nodeType, _ := record["nodeType"]
-	fileID, _ := record["fileId"]
-	name, _ := record["name"]
-	rangeStr, _ := record["range"]
-	version, _ := record["version"]
-	scopeID, _ := record["scopeId"]
+	id := record["id"]
+	nodeType := record["nodeType"]
+	fileID := record["fileId"]
+	name := record["name"]
+	rangeStr := record["range"]
+	version := record["version"]
+	scopeID := record["scopeId"]
 
 	newMetadata := make(map[string]any)
 	for key, value := range record {
 		if cg.isFirstClassMetadata(key) {
 			newMetadata[key] = value
+		} else if strings.HasPrefix(key, "md_") {
+			newMetadata[key[3:]] = value
 		}
-	}
-
-	metadata, _ := record["metaData"]
-	if metadata != nil {
-		maps.Copy(newMetadata, metadata.(map[string]any))
 	}
 
 	node := &ast.Node{
@@ -417,7 +414,7 @@ func (cg *CodeGraph) populateFirstClassMetadata(metadata map[string]any,
 	}
 }
 
-func (cg *CodeGraph) mapToSetParamString(m map[string]any) string {
+func (cg *CodeGraph) mapToSetParamString(m map[string]any, varName string) string {
 	if len(m) == 0 {
 		return ""
 	}
@@ -427,9 +424,15 @@ func (cg *CodeGraph) mapToSetParamString(m map[string]any) string {
 		if setClauses != "" {
 			setClauses += ",\n"
 		}
-		setClauses += fmt.Sprintf("n.%s = $%s", key, key)
+		setClauses += fmt.Sprintf("%s.%s = $%s", varName, key, key)
 	}
 	return setClauses
+}
+
+func (cg *CodeGraph) flattenMetadata(metadata map[string]any, param map[string]any) {
+	for key, value := range metadata {
+		param["md_"+key] = value
+	}
 }
 
 func (cg *CodeGraph) writeNode(ctx context.Context, node *ast.Node) error {
@@ -448,11 +451,14 @@ func (cg *CodeGraph) writeNode(ctx context.Context, node *ast.Node) error {
 		newMetadata := make(map[string]any)
 		cg.populateFirstClassMetadata(node.MetaData, parameters, newMetadata)
 		if len(newMetadata) > 0 {
-			parameters["metaData"] = newMetadata
+			cg.flattenMetadata(newMetadata, parameters)
+			//parameters["metaData"] = newMetadata
 		}
 	}
 
-	setQ := cg.mapToSetParamString(parameters)
+	cg.logger.Debug("Writing node", zap.Int64("nodeId", int64(node.ID)), zap.Any("parameters", parameters))
+
+	setQ := cg.mapToSetParamString(parameters, "n")
 	query := fmt.Sprintf(`
 		MERGE (n:%s {id: $id})
 		SET %s
@@ -546,8 +552,18 @@ func (cg *CodeGraph) CreateRelation(ctx context.Context, parentNodeID, childNode
 
 	setMetaDataQ := ""
 	if metaData != nil {
-		parameters["metaData"] = metaData
-		setMetaDataQ = "SET r.metaData = $metaData"
+		//parameters["metaData"] = metaData
+		//setMetaDataQ = "SET r.metaData = $metaData"
+		newMetadata := make(map[string]any)
+		cg.flattenMetadata(metaData, newMetadata)
+		setMetaDataQ = cg.mapToSetParamString(newMetadata, "r")
+		if setMetaDataQ != "" {
+			setMetaDataQ = "SET " + setMetaDataQ
+		}
+		// append newMetadata to parameters
+		for key, value := range newMetadata {
+			parameters[key] = value
+		}
 	}
 
 	query := fmt.Sprintf(`
@@ -649,7 +665,7 @@ func (cg *CodeGraph) CreateConditionalRelation(ctx context.Context, condNodeID,
 	})
 }
 
-func (cg *CodeGraph) GetOrCreateNextFileID(ctx context.Context) (int32, error) {
+/*func (cg *CodeGraph) GetOrCreateNextFileID(ctx context.Context) (int32, error) {
 	query := `
 		MERGE (fn:FileNumber {id: -1})
 		ON CREATE SET fn.max_file_id = 1
@@ -680,6 +696,7 @@ func (cg *CodeGraph) GetOrCreateNextFileID(ctx context.Context) (int32, error) {
 		return 0, fmt.Errorf("unexpected type for next_file_id: %T", nextFileID)
 	}
 }
+*/
 
 func (cg *CodeGraph) FindFunctionCalls(ctx context.Context, fileID ast.NodeID) (map[ast.NodeID][]*ast.Node, error) {
 	query := `

@@ -287,11 +287,13 @@ func (t *TranslateFromSyntaxTree) ToRange(node *tree_sitter.Node) base.Range {
 }
 
 func (t *TranslateFromSyntaxTree) GetTreeNodeName(node *tree_sitter.Node) string {
-	if node.Kind() == "scoped_identifier" ||
-		node.Kind() == "identifier" ||
-		node.Kind() == "property_identifier" ||
-		node.Kind() == "type_identifier" ||
-		node.Kind() == "shorthand_property_identifier_pattern" {
+	kind := node.Kind()
+	if kind == "scoped_identifier" ||
+		kind == "identifier" ||
+		kind == "property_identifier" ||
+		kind == "type_identifier" ||
+		kind == "shorthand_property_identifier_pattern" ||
+		kind == "field_identifier" {
 		return t.String(node)
 	}
 
@@ -428,8 +430,11 @@ func (t *TranslateFromSyntaxTree) ResolveNameChain(ctx context.Context, nameChai
 		varName := t.GetTreeNodeName(nameNode)
 
 		if varName == "" {
+			t.GetTreeNodeName(nameNode) // just for debugging
 			if sym != nil {
-				t.Logger.Error("Empty name not the first on in list of names", zap.String("prev", sym.Node.Name))
+				//t.Logger.Error("Empty name not the first on in list of names", zap.String("prev", sym.Node.Name))
+				debugName := PrintSyntaxTree(ctx, t.Logger, nameNode)
+				t.Logger.Info("Node with empty name", zap.String("node", debugName))
 			}
 			fakeVarID := t.HandleRhsWithFakeVariable(ctx, "__name__", nameNode, scopeID, nil)
 			varNode := t.Nodes[fakeVarID]

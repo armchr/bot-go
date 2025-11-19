@@ -10,6 +10,7 @@ dist/
 dump/
 source.yaml
 ngram_models/
+.vscode/
 
 # Compiled Java class files
 *.class

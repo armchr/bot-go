@@ -6,7 +6,7 @@ app:
   codegraph: false
   gopls: "${BOT_GO_PATH}/scripts/gopls.sh"
   python: "${BOT_GO_PATH}/scripts/pylsp.sh"
-  num_file_threads: 2
+  num_file_threads: 1
 neo4j:
   uri: "bolt://localhost:7687"
   username: "neo4j"

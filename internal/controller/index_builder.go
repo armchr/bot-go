@@ -15,10 +15,10 @@ import (
 // IndexBuilder orchestrates the building of various indexes (code graph, embeddings, n-gram)
 // for a repository using a parallel file processing approach
 type IndexBuilder struct {
-	config            *config.Config
-	processors        []FileProcessor
-	logger            *zap.Logger
-	fileVersionRepo   *db.FileVersionRepository
+	config          *config.Config
+	processors      []FileProcessor
+	logger          *zap.Logger
+	fileVersionRepo *db.FileVersionRepository
 }
 
 // NewIndexBuilder creates a new index builder with the specified processors

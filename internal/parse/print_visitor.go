@@ -27,6 +27,12 @@ func NewPrintVisitor(logger *zap.Logger, ts *TranslateFromSyntaxTree) *PrintVisi
 	}
 }
 
+func PrintSyntaxTree(ctx context.Context, logger *zap.Logger, tsNode *tree_sitter.Node) string {
+	pv := NewPrintVisitor(logger, nil)
+	pv.TraverseNode(ctx, tsNode, ast.InvalidNodeID)
+	return pv.content
+}
+
 func (pv *PrintVisitor) TraverseNode(ctx context.Context, tsNode *tree_sitter.Node, scopeID ast.NodeID) ast.NodeID {
 	if tsNode == nil {
 		return ast.InvalidNodeID
