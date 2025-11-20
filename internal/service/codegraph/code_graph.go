@@ -110,7 +110,11 @@ func (cg *CodeGraph) InitializeFileBuffers(fileID int32) {
 	}
 
 	cg.bufferMutex.Lock()
-	defer cg.bufferMutex.Unlock()
+	//cg.logger.Debug("Acquired bufferMutex lock in InitializeFileBuffers", zap.Int32("fileID", fileID))
+	defer func() {
+		//cg.logger.Debug("Releasing bufferMutex lock in InitializeFileBuffers", zap.Int32("fileID", fileID))
+		cg.bufferMutex.Unlock()
+	}()
 
 	// Initialize buffers for this file
 	cg.buffers[fileID] = &Buffer{
@@ -133,7 +137,11 @@ func (cg *CodeGraph) CleanupFileBuffers(ctx context.Context, fileID int32) error
 
 	// Remove buffers to free memory
 	cg.bufferMutex.Lock()
-	defer cg.bufferMutex.Unlock()
+	//cg.logger.Debug("Acquired bufferMutex lock in CleanupFileBuffers", zap.Int32("fileID", fileID))
+	defer func() {
+		//cg.logger.Debug("Releasing bufferMutex lock in CleanupFileBuffers", zap.Int32("fileID", fileID))
+		cg.bufferMutex.Unlock()
+	}()
 
 	delete(cg.buffers, fileID)
 
@@ -171,7 +179,11 @@ func (cg *CodeGraph) FlushNodes(ctx context.Context, fileID *int32) error {
 		buffers.Nodes = make([]*ast.Node, 0, cg.batchSize)
 	} else {
 		cg.bufferMutex.Lock()
-		defer cg.bufferMutex.Unlock()
+		//cg.logger.Debug("Acquired bufferMutex lock in FlushNodes (flush all)")
+		defer func() {
+			//cg.logger.Debug("Releasing bufferMutex lock in FlushNodes (flush all)")
+			cg.bufferMutex.Unlock()
+		}()
 
 		// Flush all files' nodes
 		totalCount := 0
@@ -232,7 +244,11 @@ func (cg *CodeGraph) FlushRelations(ctx context.Context, fileID *int32) error {
 		buffers.Relations = make([]RelationSpec, 0, cg.batchSize)
 	} else {
 		cg.bufferMutex.Lock()
-		defer cg.bufferMutex.Unlock()
+		//cg.logger.Debug("Acquired bufferMutex lock in FlushRelations (flush all)")
+		defer func() {
+			//cg.logger.Debug("Releasing bufferMutex lock in FlushRelations (flush all)")
+			cg.bufferMutex.Unlock()
+		}()
 
 		// Flush all files' relations
 		totalCount := 0
@@ -650,29 +666,7 @@ func (cg *CodeGraph) flattenMetadata(metadata map[string]any, param map[string]a
 	}
 }
 
-func (cg *CodeGraph) writeNode(ctx context.Context, node *ast.Node) error {
-	// If batch writes are enabled, buffer the node instead of writing immediately
-	if cg.enableBatchWrites {
-		fileID := node.FileID
-
-		buffers := cg.buffers[fileID]
-
-		if buffers != nil {
-			bufferSize := len(buffers.Nodes)
-			// Append node to buffer
-			buffers.Nodes = append(buffers.Nodes, node)
-			// Flush if this file's buffer is full
-			if bufferSize >= cg.batchSize {
-				err := cg.FlushNodes(ctx, &fileID)
-				if err != nil {
-					return err
-				}
-			}
-
-			return nil
-		}
-	}
-
+func (cg *CodeGraph) writeNodeReal(ctx context.Context, node *ast.Node) error {
 	// Original immediate write logic (when batch writes disabled)
 	nodeLabel := cg.getNodeLabel(node.NodeType)
 	parameters := map[string]any{
@@ -712,6 +706,32 @@ func (cg *CodeGraph) writeNode(ctx context.Context, node *ast.Node) error {
 	return nil
 }
 
+func (cg *CodeGraph) writeNode(ctx context.Context, node *ast.Node) error {
+	// If batch writes are enabled, buffer the node instead of writing immediately
+	if cg.enableBatchWrites {
+		fileID := node.FileID
+
+		buffers := cg.buffers[fileID]
+
+		if buffers != nil {
+			bufferSize := len(buffers.Nodes)
+			// Append node to buffer
+			buffers.Nodes = append(buffers.Nodes, node)
+			// Flush if this file's buffer is full
+			if bufferSize >= cg.batchSize {
+				err := cg.FlushNodes(ctx, &fileID)
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
+		}
+	}
+
+	return cg.writeNodeReal(ctx, node)
+}
+
 // BatchWriteNodes writes multiple nodes in a single database transaction using UNWIND
 // This is much faster than individual writeNode calls for bulk operations
 func (cg *CodeGraph) BatchWriteNodes(ctx context.Context, nodes []*ast.Node) error {
@@ -723,8 +743,10 @@ func (cg *CodeGraph) BatchWriteNodes(ctx context.Context, nodes []*ast.Node) err
 
 	// Group nodes by label for efficient batch operations
 	nodesByLabel := make(map[string][]map[string]any)
+	astNodesByLabel := make(map[string][]*ast.Node)
 	for _, node := range nodes {
 		label := cg.getNodeLabel(node.NodeType)
+		astNodesByLabel[label] = append(astNodesByLabel[label], node)
 
 		// Convert node to parameters
 		parameters := map[string]any{
@@ -752,6 +774,15 @@ func (cg *CodeGraph) BatchWriteNodes(ctx context.Context, nodes []*ast.Node) err
 	for label, nodeParams := range nodesByLabel {
 		// Build dynamic SET clause from first node's properties
 		if len(nodeParams) == 0 {
+			continue
+		}
+
+		// if len(nodeParams) == 1, use regular writeNode instead
+		if len(nodeParams) == 1 {
+			err := cg.writeNodeReal(ctx, astNodesByLabel[label][0])
+			if err != nil {
+				return fmt.Errorf("failed to write single node for label %s: %w", label, err)
+			}
 			continue
 		}
 
@@ -942,36 +973,8 @@ func (cg *CodeGraph) readNodeByType(ctx context.Context, nodeID ast.NodeID, node
 	return nodes[0], nil
 }
 
-func (cg *CodeGraph) CreateRelation(ctx context.Context, parentNodeID, childNodeID ast.NodeID,
+func (cg *CodeGraph) CreateRelationReal(ctx context.Context, parentNodeID, childNodeID ast.NodeID,
 	relationLabel string, metaData map[string]any, fileID int32) error {
-
-	// If batch writes are enabled, buffer the relation instead of writing immediately
-	if cg.enableBatchWrites {
-		buffers := cg.buffers[fileID]
-
-		if buffers != nil {
-			relSpec := RelationSpec{
-				ParentID: parentNodeID,
-				ChildID:  childNodeID,
-				Label:    relationLabel,
-				Metadata: metaData,
-				FileID:   fileID,
-			}
-			buffers.Relations = append(buffers.Relations, relSpec)
-			bufferSize := len(buffers.Relations)
-
-			// Flush if this file's buffer is full
-			if bufferSize >= cg.batchSize {
-				err := cg.FlushRelations(ctx, &fileID)
-				if err != nil {
-					return err
-				}
-			}
-
-			return nil
-		}
-	}
-	// Original immediate write logic (when batch writes disabled)
 	parameters := map[string]any{
 		"parentId": int64(parentNodeID),
 		"childId":  int64(childNodeID),
@@ -1011,6 +1014,39 @@ func (cg *CodeGraph) CreateRelation(ctx context.Context, parentNodeID, childNode
 	}
 
 	return nil
+}
+
+func (cg *CodeGraph) CreateRelation(ctx context.Context, parentNodeID, childNodeID ast.NodeID,
+	relationLabel string, metaData map[string]any, fileID int32) error {
+
+	// If batch writes are enabled, buffer the relation instead of writing immediately
+	if cg.enableBatchWrites {
+		buffers := cg.buffers[fileID]
+
+		if buffers != nil {
+			relSpec := RelationSpec{
+				ParentID: parentNodeID,
+				ChildID:  childNodeID,
+				Label:    relationLabel,
+				Metadata: metaData,
+				FileID:   fileID,
+			}
+			buffers.Relations = append(buffers.Relations, relSpec)
+			bufferSize := len(buffers.Relations)
+
+			// Flush if this file's buffer is full
+			if bufferSize >= cg.batchSize {
+				err := cg.FlushRelations(ctx, &fileID)
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
+		}
+	}
+
+	return cg.CreateRelationReal(ctx, parentNodeID, childNodeID, relationLabel, metaData, fileID)
 }
 
 func (cg *CodeGraph) CreateContainsRelation(ctx context.Context, parentNodeID, childNodeID ast.NodeID, fileID int32) error {
