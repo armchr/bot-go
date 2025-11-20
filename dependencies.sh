@@ -14,8 +14,10 @@ docker run -d \
     neo4j:5.13
 
 docker run -d -p 6333:6333 -p 6334:6334 \
-      -v "/Users/anindya/qdrant_storage:/qdrant/storage" \
+      -v "~/qdrant_storage:/qdrant/storage" \
       qdrant/qdrant
 
 # https://github.com/qdrant/qdrant-web-ui.git
 # npm start
+#
+# docker exec -it $(docker ps --filter "publish=3306" --format "{{.Names}}") mariadb -u root -parmchair armchair
