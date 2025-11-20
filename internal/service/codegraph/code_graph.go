@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"bot-go/internal/config"
 	"bot-go/internal/model/ast"
@@ -17,6 +18,12 @@ type CodeGraph struct {
 	config      *config.Config
 	logger      *zap.Logger
 	fileIDCache map[int32]string
+	// Batch writing support
+	enableBatchWrites bool
+	batchSize         int
+	nodeBuffer        []*ast.Node
+	relationBuffer    []RelationSpec
+	bufferMutex       sync.Mutex // Protects buffers for thread safety
 }
 
 func NewCodeGraph(uri, username, password string, config *config.Config, logger *zap.Logger) (*CodeGraph, error) {
@@ -31,11 +38,22 @@ func NewCodeGraph(uri, username, password string, config *config.Config, logger 
 		return nil, fmt.Errorf("failed to verify database connectivity: %w", err)
 	}
 
+	// Initialize batch writing configuration
+	enableBatch := config.CodeGraph.EnableBatchWrites
+	batchSize := config.CodeGraph.BatchSize
+	if batchSize == 0 {
+		batchSize = 100 // default
+	}
+
 	return &CodeGraph{
-		db:          db,
-		config:      config,
-		logger:      logger,
-		fileIDCache: make(map[int32]string),
+		db:                db,
+		config:            config,
+		logger:            logger,
+		fileIDCache:       make(map[int32]string),
+		enableBatchWrites: enableBatch,
+		batchSize:         batchSize,
+		nodeBuffer:        make([]*ast.Node, 0, batchSize),
+		relationBuffer:    make([]RelationSpec, 0, batchSize),
 	}, nil
 }
 
@@ -59,16 +77,97 @@ func NewCodeGraphWithKuzu(config *config.Config, logger *zap.Logger) (*CodeGraph
 		return nil, fmt.Errorf("failed to verify database connectivity: %w", err)
 	}
 
+	// Initialize batch writing configuration
+	enableBatch := config.CodeGraph.EnableBatchWrites
+	batchSize := config.CodeGraph.BatchSize
+	if batchSize == 0 {
+		batchSize = 100 // default
+	}
+
 	return &CodeGraph{
-		db:          db,
-		config:      config,
-		logger:      logger,
-		fileIDCache: make(map[int32]string),
+		db:                db,
+		config:            config,
+		logger:            logger,
+		fileIDCache:       make(map[int32]string),
+		enableBatchWrites: enableBatch,
+		batchSize:         batchSize,
+		nodeBuffer:        make([]*ast.Node, 0, batchSize),
+		relationBuffer:    make([]RelationSpec, 0, batchSize),
 	}, nil
 }
 
 func (cg *CodeGraph) Close(ctx context.Context) error {
 	return cg.db.Close(ctx)
+}
+
+// FlushNodes writes all buffered nodes to the database
+func (cg *CodeGraph) FlushNodes(ctx context.Context) error {
+	if !cg.enableBatchWrites {
+		return nil // No-op if batch writes not enabled
+	}
+
+	cg.bufferMutex.Lock()
+	defer cg.bufferMutex.Unlock()
+
+	if len(cg.nodeBuffer) == 0 {
+		return nil
+	}
+
+	cg.logger.Debug("Flushing node buffer", zap.Int("count", len(cg.nodeBuffer)))
+
+	err := cg.BatchWriteNodes(ctx, cg.nodeBuffer)
+	if err != nil {
+		return fmt.Errorf("failed to flush nodes: %w", err)
+	}
+
+	// Clear the buffer
+	cg.nodeBuffer = cg.nodeBuffer[:0]
+	return nil
+}
+
+// FlushRelations writes all buffered relations to the database
+func (cg *CodeGraph) FlushRelations(ctx context.Context) error {
+	if !cg.enableBatchWrites {
+		return nil // No-op if batch writes not enabled
+	}
+
+	cg.bufferMutex.Lock()
+	defer cg.bufferMutex.Unlock()
+
+	if len(cg.relationBuffer) == 0 {
+		return nil
+	}
+
+	cg.logger.Debug("Flushing relation buffer", zap.Int("count", len(cg.relationBuffer)))
+
+	err := cg.BatchCreateRelations(ctx, cg.relationBuffer)
+	if err != nil {
+		return fmt.Errorf("failed to flush relations: %w", err)
+	}
+
+	// Clear the buffer
+	cg.relationBuffer = cg.relationBuffer[:0]
+	return nil
+}
+
+// Flush writes all buffered nodes and relations to the database
+// IMPORTANT: Nodes are flushed BEFORE relations to ensure they exist in the database
+func (cg *CodeGraph) Flush(ctx context.Context) error {
+	if !cg.enableBatchWrites {
+		return nil // No-op if batch writes not enabled
+	}
+
+	// Flush nodes first (required for relations to reference them)
+	if err := cg.FlushNodes(ctx); err != nil {
+		return err
+	}
+
+	// Then flush relations
+	if err := cg.FlushRelations(ctx); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (cg *CodeGraph) dbRecordToNode(record GraphNode) (*ast.Node, error) {
@@ -436,6 +535,27 @@ func (cg *CodeGraph) flattenMetadata(metadata map[string]any, param map[string]a
 }
 
 func (cg *CodeGraph) writeNode(ctx context.Context, node *ast.Node) error {
+	// If batch writes are enabled, buffer the node instead of writing immediately
+	if cg.enableBatchWrites {
+		cg.bufferMutex.Lock()
+		defer cg.bufferMutex.Unlock()
+
+		cg.nodeBuffer = append(cg.nodeBuffer, node)
+
+		// Flush if buffer is full
+		if len(cg.nodeBuffer) >= cg.batchSize {
+			cg.bufferMutex.Unlock() // Unlock before flush (FlushNodes will lock again)
+			err := cg.FlushNodes(ctx)
+			cg.bufferMutex.Lock() // Re-lock for defer to work correctly
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	// Original immediate write logic (when batch writes disabled)
 	nodeLabel := cg.getNodeLabel(node.NodeType)
 	parameters := map[string]any{
 		"id":       int64(node.ID),
@@ -456,7 +576,7 @@ func (cg *CodeGraph) writeNode(ctx context.Context, node *ast.Node) error {
 		}
 	}
 
-	cg.logger.Debug("Writing node", zap.Int64("nodeId", int64(node.ID)), zap.Any("parameters", parameters))
+	// cg.logger.Debug("Writing node", zap.Int64("nodeId", int64(node.ID)), zap.Any("parameters", parameters))
 
 	setQ := cg.mapToSetParamString(parameters, "n")
 	query := fmt.Sprintf(`
@@ -469,6 +589,166 @@ func (cg *CodeGraph) writeNode(ctx context.Context, node *ast.Node) error {
 	if err != nil {
 		cg.logger.Error("Failed to write node", zap.Int64("nodeId", int64(node.ID)), zap.Error(err))
 		return fmt.Errorf("failed to write node: %w", err)
+	}
+
+	return nil
+}
+
+// BatchWriteNodes writes multiple nodes in a single database transaction using UNWIND
+// This is much faster than individual writeNode calls for bulk operations
+func (cg *CodeGraph) BatchWriteNodes(ctx context.Context, nodes []*ast.Node) error {
+	if len(nodes) == 0 {
+		return nil
+	}
+
+	cg.logger.Debug("Batch writing nodes", zap.Int("count", len(nodes)))
+
+	// Group nodes by label for efficient batch operations
+	nodesByLabel := make(map[string][]map[string]any)
+	for _, node := range nodes {
+		label := cg.getNodeLabel(node.NodeType)
+
+		// Convert node to parameters
+		parameters := map[string]any{
+			"id":       int64(node.ID),
+			"nodeType": int64(node.NodeType),
+			"fileId":   int64(node.FileID),
+			"name":     node.Name,
+			"range":    rangeToString(node.Range),
+			"version":  int64(node.Version),
+			"scopeId":  int64(node.ScopeID),
+		}
+
+		if node.MetaData != nil {
+			newMetadata := make(map[string]any)
+			cg.populateFirstClassMetadata(node.MetaData, parameters, newMetadata)
+			if len(newMetadata) > 0 {
+				cg.flattenMetadata(newMetadata, parameters)
+			}
+		}
+
+		nodesByLabel[label] = append(nodesByLabel[label], parameters)
+	}
+
+	// Write each label group in batch
+	for label, nodeParams := range nodesByLabel {
+		// Build dynamic SET clause from first node's properties
+		if len(nodeParams) == 0 {
+			continue
+		}
+
+		setClause := ""
+		first := true
+		for key := range nodeParams[0] {
+			if !first {
+				setClause += ",\n  "
+			}
+			setClause += fmt.Sprintf("n.%s = nodeData.%s", key, key)
+			first = false
+		}
+
+		query := fmt.Sprintf(`
+			UNWIND $nodes AS nodeData
+			MERGE (n:%s {id: nodeData.id})
+			SET %s
+			RETURN count(n) as created
+		`, label, setClause)
+
+		_, err := cg.db.ExecuteWrite(ctx, query, map[string]any{"nodes": nodeParams})
+		if err != nil {
+			cg.logger.Error("Failed to batch write nodes",
+				zap.String("label", label),
+				zap.Int("count", len(nodeParams)),
+				zap.Error(err))
+			return fmt.Errorf("failed to batch write nodes for label %s: %w", label, err)
+		}
+
+		cg.logger.Debug("Batch wrote nodes",
+			zap.String("label", label),
+			zap.Int("count", len(nodeParams)))
+	}
+
+	return nil
+}
+
+// RelationSpec specifies a relationship to be created
+type RelationSpec struct {
+	ParentID ast.NodeID
+	ChildID  ast.NodeID
+	Label    string
+	Metadata map[string]any
+}
+
+// BatchCreateRelations creates multiple relationships in a single database transaction
+// This is much faster than individual CreateRelation calls for bulk operations
+func (cg *CodeGraph) BatchCreateRelations(ctx context.Context, relations []RelationSpec) error {
+	if len(relations) == 0 {
+		return nil
+	}
+
+	cg.logger.Debug("Batch creating relations", zap.Int("count", len(relations)))
+
+	// Group relations by label for efficient processing
+	relationsByLabel := make(map[string][]map[string]any)
+	for _, rel := range relations {
+		relData := map[string]any{
+			"parentId": int64(rel.ParentID),
+			"childId":  int64(rel.ChildID),
+		}
+
+		// Add metadata if present
+		if rel.Metadata != nil {
+			newMetadata := make(map[string]any)
+			cg.flattenMetadata(rel.Metadata, newMetadata)
+			for key, value := range newMetadata {
+				relData[key] = value
+			}
+		}
+
+		relationsByLabel[rel.Label] = append(relationsByLabel[rel.Label], relData)
+	}
+
+	// Write each label group in batch
+	for label, relParams := range relationsByLabel {
+		// Build SET clause for metadata (if any)
+		setClause := ""
+		if len(relParams) > 0 && len(relParams[0]) > 2 { // More than just parentId and childId
+			first := true
+			for key := range relParams[0] {
+				if key == "parentId" || key == "childId" {
+					continue
+				}
+				if !first {
+					setClause += ",\n  "
+				}
+				setClause += fmt.Sprintf("r.%s = relData.%s", key, key)
+				first = false
+			}
+			if setClause != "" {
+				setClause = "SET " + setClause
+			}
+		}
+
+		query := fmt.Sprintf(`
+			UNWIND $relations AS relData
+			MATCH (parent {id: relData.parentId}), (child {id: relData.childId})
+			MERGE (parent)-[r:%s]->(child)
+			%s
+			RETURN count(r) as created
+		`, label, setClause)
+
+		_, err := cg.db.ExecuteWrite(ctx, query, map[string]any{"relations": relParams})
+		if err != nil {
+			cg.logger.Error("Failed to batch create relations",
+				zap.String("label", label),
+				zap.Int("count", len(relParams)),
+				zap.Error(err))
+			return fmt.Errorf("failed to batch create relations for label %s: %w", label, err)
+		}
+
+		cg.logger.Debug("Batch created relations",
+			zap.String("label", label),
+			zap.Int("count", len(relParams)))
 	}
 
 	return nil
@@ -545,6 +825,34 @@ func (cg *CodeGraph) readNodeByType(ctx context.Context, nodeID ast.NodeID, node
 
 func (cg *CodeGraph) CreateRelation(ctx context.Context, parentNodeID, childNodeID ast.NodeID,
 	relationLabel string, metaData map[string]any) error {
+
+	// If batch writes are enabled, buffer the relation instead of writing immediately
+	if cg.enableBatchWrites {
+		cg.bufferMutex.Lock()
+		defer cg.bufferMutex.Unlock()
+
+		relSpec := RelationSpec{
+			ParentID: parentNodeID,
+			ChildID:  childNodeID,
+			Label:    relationLabel,
+			Metadata: metaData,
+		}
+		cg.relationBuffer = append(cg.relationBuffer, relSpec)
+
+		// Flush if buffer is full
+		if len(cg.relationBuffer) >= cg.batchSize {
+			cg.bufferMutex.Unlock() // Unlock before flush (FlushRelations will lock again)
+			err := cg.FlushRelations(ctx)
+			cg.bufferMutex.Lock() // Re-lock for defer to work correctly
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	// Original immediate write logic (when batch writes disabled)
 	parameters := map[string]any{
 		"parentId": int64(parentNodeID),
 		"childId":  int64(childNodeID),

@@ -70,6 +70,16 @@ func (cgp *CodeGraphProcessor) ProcessFile(ctx context.Context, repo *config.Rep
 		return nil // Continue processing other files
 	}
 
+	// Flush any remaining buffered nodes and relations after processing this file
+	// This ensures nodes/relations are written to DB before moving to next file
+	if err := cgp.codeGraph.Flush(ctx); err != nil {
+		cgp.logger.Error("Failed to flush code graph buffers after file processing",
+			zap.String("path", fileCtx.FilePath),
+			zap.Int32("file_id", fileCtx.FileID),
+			zap.Error(err))
+		return nil // Continue processing other files
+	}
+
 	cgp.logger.Debug("Successfully parsed file for code graph",
 		zap.String("path", fileCtx.FilePath),
 		zap.Int32("file_id", fileCtx.FileID))
@@ -80,10 +90,28 @@ func (cgp *CodeGraphProcessor) ProcessFile(ctx context.Context, repo *config.Rep
 func (cgp *CodeGraphProcessor) PostProcess(ctx context.Context, repo *config.Repository) error {
 	cgp.logger.Info("Running code graph post-processing", zap.String("repo_name", repo.Name))
 
+	// Flush any remaining buffered nodes and relations before post-processing
+	cgp.logger.Debug("Flushing buffered nodes and relations before post-processing")
+	if err := cgp.codeGraph.Flush(ctx); err != nil {
+		cgp.logger.Error("Failed to flush code graph buffers",
+			zap.String("repo_name", repo.Name),
+			zap.Error(err))
+		return err
+	}
+
 	postProcessor := NewPostProcessor(cgp.codeGraph, cgp.repoService.GetLspService(), cgp.logger)
 	err := postProcessor.PostProcessRepository(ctx, repo)
 	if err != nil {
 		cgp.logger.Error("Code graph post-processing failed",
+			zap.String("repo_name", repo.Name),
+			zap.Error(err))
+		return err
+	}
+
+	// Flush again after post-processing (in case post-processor created new relations)
+	cgp.logger.Debug("Flushing code graph buffers after post-processing")
+	if err := cgp.codeGraph.Flush(ctx); err != nil {
+		cgp.logger.Error("Failed to flush code graph buffers after post-processing",
 			zap.String("repo_name", repo.Name),
 			zap.Error(err))
 		return err

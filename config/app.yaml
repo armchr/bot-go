@@ -6,7 +6,7 @@ app:
   codegraph: false
   gopls: "${BOT_GO_PATH}/scripts/gopls.sh"
   python: "${BOT_GO_PATH}/scripts/pylsp.sh"
-  num_file_threads: 1
+  num_file_threads: 5
 neo4j:
   uri: "bolt://localhost:7687"
   username: "neo4j"
@@ -40,3 +40,7 @@ index_building:
   enable_code_graph: true      # Build code graph using tree-sitter and LSP
   enable_embeddings: true      # Generate and store code embeddings in vector DB
   enable_ngram: true           # Build n-gram model for code analysis
+code_graph:
+  # Configuration for code graph building optimization
+  enable_batch_writes: true    # Use batch writes for nodes and relationships (much faster)
+  batch_size: 100              # Number of nodes/relations to accumulate before writing to DB

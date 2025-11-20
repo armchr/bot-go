@@ -131,16 +131,21 @@ type SyntaxTreeVisitor interface {
 }
 
 type TranslateFromSyntaxTree struct {
-	ScopeStack   []*Scope
-	CurrentScope *Scope
-	FileID       int32
-	Version      int32
-	NodeIDSeq    uint32
-	CodeGraph    *codegraph.CodeGraph
-	FileContent  []byte
-	Visitor      SyntaxTreeVisitor
-	Logger       *zap.Logger
-	Nodes        map[ast.NodeID]*ast.Node
+	ScopeStack          []*Scope
+	CurrentScope        *Scope
+	FileID              int32
+	Version             int32
+	NodeIDSeq           uint32
+	CodeGraph           *codegraph.CodeGraph
+	FileContent         []byte
+	Visitor             SyntaxTreeVisitor
+	Logger              *zap.Logger
+	Nodes               map[ast.NodeID]*ast.Node
+	// Batch writing support
+	EnableBatchWrites   bool
+	BatchSize           int
+	nodeBuffer          []*ast.Node
+	relationBuffer      []codegraph.RelationSpec
 }
 
 func NewTranslateFromSyntaxTree(fileID int32, version int32, codeGraph *codegraph.CodeGraph,

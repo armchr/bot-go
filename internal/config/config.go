@@ -85,6 +85,11 @@ type MySQLConfig struct {
 	Database string `yaml:"database"`
 }
 
+type CodeGraphConfig struct {
+	EnableBatchWrites bool `yaml:"enable_batch_writes"`
+	BatchSize         int  `yaml:"batch_size"` // Number of nodes/relations to batch before writing
+}
+
 func (c *McpConfig) GetAddress() string {
 	//return fmt.Sprintf("%s:%d", c.Host, c.Port) //, c.Path)
 	return fmt.Sprintf(":%d", c.Port) //, c.Path)
@@ -101,6 +106,7 @@ type Config struct {
 	BloomFilter   BloomFilterConfig   `yaml:"bloom_filter"`
 	IndexBuilding IndexBuildingConfig `yaml:"index_building"`
 	MySQL         MySQLConfig         `yaml:"mysql"`
+	CodeGraph     CodeGraphConfig     `yaml:"code_graph"`
 	App           App                 `yaml:"app"`
 }
 
