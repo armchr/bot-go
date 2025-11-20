@@ -201,7 +201,7 @@ func (t *TranslateFromSyntaxTree) PopScope(ctx context.Context, closingScopeId a
 	} else {
 		// create contains relations for all not contained nodes
 		for childID := range curScope.notContainedNodes {
-			t.CreateContainsRelation(ctx, closingScopeId, childID)
+			t.CreateContainsRelation(ctx, closingScopeId, childID, t.FileID)
 		}
 	}
 
@@ -337,8 +337,8 @@ func (t *TranslateFromSyntaxTree) TraverseChildren(ctx context.Context, tsNode *
 	return childIDs
 }
 
-func (t *TranslateFromSyntaxTree) CreateContainsRelation(ctx context.Context, parentID ast.NodeID, childID ast.NodeID) {
-	err := t.CodeGraph.CreateContainsRelation(ctx, parentID, childID)
+func (t *TranslateFromSyntaxTree) CreateContainsRelation(ctx context.Context, parentID ast.NodeID, childID ast.NodeID, fileID int32) {
+	err := t.CodeGraph.CreateContainsRelation(ctx, parentID, childID, fileID)
 	if err != nil {
 		t.Logger.Error("Failed to create contains relation", zap.Int64("parentID", int64(parentID)), zap.Int64("childID", int64(childID)), zap.Error(err))
 	}
@@ -347,7 +347,7 @@ func (t *TranslateFromSyntaxTree) CreateContainsRelation(ctx context.Context, pa
 
 func (t *TranslateFromSyntaxTree) CreateContainsRelations(ctx context.Context, parentID ast.NodeID, childIDs []ast.NodeID) {
 	for _, childID := range childIDs {
-		t.CreateContainsRelation(ctx, parentID, childID)
+		t.CreateContainsRelation(ctx, parentID, childID, t.FileID)
 	}
 }
 
@@ -368,15 +368,15 @@ func (t *TranslateFromSyntaxTree) CreateFunction(ctx context.Context, scopeID as
 	// Handle parameters
 	for idx, param := range params {
 		paramNodeID := t.HandleVariable(ctx, param, funcNode.ID)
-		t.CreateContainsRelation(ctx, funcNode.ID, paramNodeID)
-		t.CodeGraph.CreateFunctionArgRelation(ctx, funcNode.ID, paramNodeID, idx)
+		t.CreateContainsRelation(ctx, funcNode.ID, paramNodeID, t.FileID)
+		t.CodeGraph.CreateFunctionArgRelation(ctx, funcNode.ID, paramNodeID, idx, t.FileID)
 	}
 
 	if body != nil {
 		bodyNodeID := t.Visitor.TraverseNode(ctx, body, funcNode.ID)
 		if bodyNodeID != ast.InvalidNodeID {
-			t.CreateContainsRelation(ctx, funcNode.ID, bodyNodeID)
-			t.CodeGraph.CreateBodyRelation(ctx, funcNode.ID, bodyNodeID)
+			t.CreateContainsRelation(ctx, funcNode.ID, bodyNodeID, t.FileID)
+			t.CodeGraph.CreateBodyRelation(ctx, funcNode.ID, bodyNodeID, t.FileID)
 		}
 	}
 
@@ -460,7 +460,7 @@ func (t *TranslateFromSyntaxTree) ResolveNameChain(ctx context.Context, nameChai
 				sym.AddField(newSym)
 
 				if newSym.Node.ID != ast.InvalidNodeID {
-					t.CodeGraph.CreateHasFieldRelation(ctx, sym.Node.ID, newSym.Node.ID)
+					t.CodeGraph.CreateHasFieldRelation(ctx, sym.Node.ID, newSym.Node.ID, t.FileID)
 				}
 				// must be at the end of this block
 				sym = newSym
@@ -491,15 +491,15 @@ func (t *TranslateFromSyntaxTree) HandleClass(ctx context.Context, scopeID ast.N
 	for _, field := range fields {
 		fieldNodeID := t.HandleVariable(ctx, field, classNode.ID)
 		if fieldNodeID != ast.InvalidNodeID {
-			t.CreateContainsRelation(ctx, classNode.ID, fieldNodeID)
+			t.CreateContainsRelation(ctx, classNode.ID, fieldNodeID, t.FileID)
 		}
 	}
 
 	for _, method := range methods {
 		methodNodeID := t.Visitor.TraverseNode(ctx, method, classNode.ID)
 		if methodNodeID != ast.InvalidNodeID {
-			t.CreateContainsRelation(ctx, classNode.ID, methodNodeID)
-			t.CodeGraph.CreateCallsFunctionRelation(ctx, classNode.ID, methodNodeID)
+			t.CreateContainsRelation(ctx, classNode.ID, methodNodeID, t.FileID)
+			t.CodeGraph.CreateCallsFunctionRelation(ctx, classNode.ID, methodNodeID, t.FileID)
 		}
 	}
 
@@ -517,7 +517,7 @@ func (t *TranslateFromSyntaxTree) HandleRhsWithFakeVariable(ctx context.Context,
 	retVarID := t.CreateFakeVariable(ctx, scopeID, lhsPrefix, t.ToRange(rhs), additionalMetadata)
 
 	for _, rhsVarID := range rhsVarIds {
-		t.CodeGraph.CreateDataFlowRelation(ctx, rhsVarID, retVarID)
+		t.CodeGraph.CreateDataFlowRelation(ctx, rhsVarID, retVarID, t.FileID)
 	}
 	return retVarID
 }
@@ -540,7 +540,7 @@ func (t *TranslateFromSyntaxTree) HandleRhsExprsWithFakeVariable(ctx context.Con
 	}
 	retVarID := t.CreateFakeVariable(ctx, scopeID, lhsPrefix, t.ToRange(rhsExprs[0]), additionalMetadata)
 	for _, rhsVarID := range allRhsVarIds {
-		t.CodeGraph.CreateDataFlowRelation(ctx, rhsVarID, retVarID)
+		t.CodeGraph.CreateDataFlowRelation(ctx, rhsVarID, retVarID, t.FileID)
 	}
 	return retVarID
 }
@@ -584,7 +584,7 @@ func (t *TranslateFromSyntaxTree) HandleCall(ctx context.Context, name ast.NodeI
 
 	for idx, arg := range args {
 		argNodeID := t.HandleRhsWithFakeVariable(ctx, fmt.Sprintf("__arg_%d__", idx), arg, scopeID, nil)
-		t.CodeGraph.CreateFunctionCallArgRelation(ctx, callNode.ID, argNodeID, idx)
+		t.CodeGraph.CreateFunctionCallArgRelation(ctx, callNode.ID, argNodeID, idx, t.FileID)
 	}
 
 	t.CurrentScope.AddRhsVar(callNode.ID)
@@ -653,7 +653,7 @@ func (t *TranslateFromSyntaxTree) HandleConditional(ctx context.Context, conditi
 		if idx < len(conditionIDs) {
 			conditionId = conditionIDs[idx]
 		}
-		t.CodeGraph.CreateConditionalRelation(ctx, condNode.ID, branchNodeID, idx, conditionId)
+		t.CodeGraph.CreateConditionalRelation(ctx, condNode.ID, branchNodeID, idx, conditionId, t.FileID)
 	}
 	return condNode.ID
 }
@@ -674,10 +674,10 @@ func (t *TranslateFromSyntaxTree) HandleLoop(ctx context.Context, loopNode *tree
 	t.CodeGraph.CreateLoop(ctx, node)
 
 	t.CreateContainsRelations(ctx, node.ID, []ast.NodeID{conditionID, bodyID})
-	t.CodeGraph.CreateBodyRelation(ctx, node.ID, bodyID)
+	t.CodeGraph.CreateBodyRelation(ctx, node.ID, bodyID, t.FileID)
 
 	if initID != ast.InvalidNodeID {
-		t.CreateContainsRelation(ctx, node.ID, initID)
+		t.CreateContainsRelation(ctx, node.ID, initID, t.FileID)
 	}
 	return node.ID
 }
@@ -694,6 +694,6 @@ func (t *TranslateFromSyntaxTree) HandleAssignment(ctx context.Context, assignNo
 		return ast.InvalidNodeID
 	}
 
-	t.CodeGraph.CreateDataFlowRelation(ctx, rhsID, lhsID)
+	t.CodeGraph.CreateDataFlowRelation(ctx, rhsID, lhsID, t.FileID)
 	return lhsID
 }

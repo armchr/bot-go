@@ -207,7 +207,7 @@ func (fp *FileParser) ParseAndTraverseWithContent(ctx context.Context, repo *con
 
 	rootNodeId := visitor.TraverseNode(ctx, rootNode, fileScope.ID)
 	if rootNodeId != ast.InvalidNodeID {
-		fp.CodeGraph.CreateContainsRelation(ctx, fileScope.ID, rootNodeId)
+		fp.CodeGraph.CreateContainsRelation(ctx, fileScope.ID, rootNodeId, fileID)
 	}
 
 	if pv, ok := visitor.(*PrintVisitor); ok {

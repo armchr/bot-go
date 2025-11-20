@@ -211,7 +211,7 @@ func (pp *PostProcessor) createCallsRelations(ctx context.Context, repo *config.
 		}
 
 		if targetDefnID != ast.InvalidNodeID {
-			pp.codeGraph.CreateCallsFunctionRelation(ctx, call.ID, targetDefnID)
+			pp.codeGraph.CreateCallsFunctionRelation(ctx, call.ID, targetDefnID, call.FileID)
 		}
 	}
 

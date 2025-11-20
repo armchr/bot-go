@@ -13,17 +13,21 @@ import (
 	"go.uber.org/zap"
 )
 
+type Buffer struct {
+	Nodes     []*ast.Node
+	Relations []RelationSpec
+}
+
 type CodeGraph struct {
 	db          GraphDatabase
 	config      *config.Config
 	logger      *zap.Logger
 	fileIDCache map[int32]string
-	// Batch writing support
+	// Batch writing support - file-level buffers for parallel processing
 	enableBatchWrites bool
 	batchSize         int
-	nodeBuffer        []*ast.Node
-	relationBuffer    []RelationSpec
-	bufferMutex       sync.Mutex // Protects buffers for thread safety
+	buffers           map[int32]*Buffer // Map: fileID -> buffer
+	bufferMutex       sync.Mutex        // Protects buffer maps
 }
 
 func NewCodeGraph(uri, username, password string, config *config.Config, logger *zap.Logger) (*CodeGraph, error) {
@@ -52,8 +56,7 @@ func NewCodeGraph(uri, username, password string, config *config.Config, logger 
 		fileIDCache:       make(map[int32]string),
 		enableBatchWrites: enableBatch,
 		batchSize:         batchSize,
-		nodeBuffer:        make([]*ast.Node, 0, batchSize),
-		relationBuffer:    make([]RelationSpec, 0, batchSize),
+		buffers:           make(map[int32]*Buffer),
 	}, nil
 }
 
@@ -91,8 +94,7 @@ func NewCodeGraphWithKuzu(config *config.Config, logger *zap.Logger) (*CodeGraph
 		fileIDCache:       make(map[int32]string),
 		enableBatchWrites: enableBatch,
 		batchSize:         batchSize,
-		nodeBuffer:        make([]*ast.Node, 0, batchSize),
-		relationBuffer:    make([]RelationSpec, 0, batchSize),
+		buffers:           make(map[int32]*Buffer),
 	}, nil
 }
 
@@ -100,70 +102,184 @@ func (cg *CodeGraph) Close(ctx context.Context) error {
 	return cg.db.Close(ctx)
 }
 
-// FlushNodes writes all buffered nodes to the database
-func (cg *CodeGraph) FlushNodes(ctx context.Context) error {
+// InitializeFileBuffers initializes buffers for a file before processing starts
+// This reduces lock contention during writeNode/CreateRelation calls
+func (cg *CodeGraph) InitializeFileBuffers(fileID int32) {
 	if !cg.enableBatchWrites {
-		return nil // No-op if batch writes not enabled
+		return
 	}
 
 	cg.bufferMutex.Lock()
 	defer cg.bufferMutex.Unlock()
 
-	if len(cg.nodeBuffer) == 0 {
+	// Initialize buffers for this file
+	cg.buffers[fileID] = &Buffer{
+		Nodes:     make([]*ast.Node, 0, cg.batchSize),
+		Relations: make([]RelationSpec, 0, cg.batchSize),
+	}
+}
+
+// CleanupFileBuffers flushes and removes buffers for a file after processing completes
+// This frees memory and ensures data is written to database
+func (cg *CodeGraph) CleanupFileBuffers(ctx context.Context, fileID int32) error {
+	if !cg.enableBatchWrites {
 		return nil
 	}
 
-	cg.logger.Debug("Flushing node buffer", zap.Int("count", len(cg.nodeBuffer)))
-
-	err := cg.BatchWriteNodes(ctx, cg.nodeBuffer)
-	if err != nil {
-		return fmt.Errorf("failed to flush nodes: %w", err)
+	// Flush any remaining data for this file
+	if err := cg.Flush(ctx, &fileID); err != nil {
+		return err
 	}
 
-	// Clear the buffer
-	cg.nodeBuffer = cg.nodeBuffer[:0]
+	// Remove buffers to free memory
+	cg.bufferMutex.Lock()
+	defer cg.bufferMutex.Unlock()
+
+	delete(cg.buffers, fileID)
+
 	return nil
 }
 
-// FlushRelations writes all buffered relations to the database
-func (cg *CodeGraph) FlushRelations(ctx context.Context) error {
+// FlushNodes writes buffered nodes to the database
+// If fileID is provided, only flushes nodes for that file
+// If fileID is nil, flushes all buffered nodes
+func (cg *CodeGraph) FlushNodes(ctx context.Context, fileID *int32) error {
 	if !cg.enableBatchWrites {
 		return nil // No-op if batch writes not enabled
 	}
 
-	cg.bufferMutex.Lock()
-	defer cg.bufferMutex.Unlock()
+	if fileID != nil {
+		buffers := cg.buffers[*fileID]
+		// Flush specific file's nodes
+		nodes := buffers.Nodes
+		if len(nodes) == 0 {
+			return nil
+		}
 
-	if len(cg.relationBuffer) == 0 {
-		return nil
+		cg.logger.Debug("Flushing node buffer for file",
+			zap.Int32("file_id", *fileID),
+			zap.Int("count", len(nodes)))
+
+		err := cg.BatchWriteNodes(ctx, nodes)
+		if err != nil {
+			return fmt.Errorf("failed to flush nodes for file %d: %w", *fileID, err)
+		}
+
+		// Clear the buffer for this file
+		//delete(cg.nodeBuffers, *fileID)
+		// Reset to empty slice
+		buffers.Nodes = make([]*ast.Node, 0, cg.batchSize)
+	} else {
+		cg.bufferMutex.Lock()
+		defer cg.bufferMutex.Unlock()
+
+		// Flush all files' nodes
+		totalCount := 0
+		for fid := range cg.buffers {
+			totalCount += len(cg.buffers[fid].Nodes)
+		}
+
+		if totalCount == 0 {
+			return nil
+		}
+
+		cg.logger.Debug("Flushing all node buffers", zap.Int("count", totalCount))
+
+		// Collect all nodes from all files
+		allNodes := make([]*ast.Node, 0, totalCount)
+		for _, buffers := range cg.buffers {
+			allNodes = append(allNodes, buffers.Nodes...)
+		}
+
+		err := cg.BatchWriteNodes(ctx, allNodes)
+		if err != nil {
+			return fmt.Errorf("failed to flush all nodes: %w", err)
+		}
+
+		// Clear all buffers
+		//cg.nodeBuffers = make(map[int32][]*ast.Node)
 	}
 
-	cg.logger.Debug("Flushing relation buffer", zap.Int("count", len(cg.relationBuffer)))
-
-	err := cg.BatchCreateRelations(ctx, cg.relationBuffer)
-	if err != nil {
-		return fmt.Errorf("failed to flush relations: %w", err)
-	}
-
-	// Clear the buffer
-	cg.relationBuffer = cg.relationBuffer[:0]
 	return nil
 }
 
-// Flush writes all buffered nodes and relations to the database
+// FlushRelations writes buffered relations to the database
+// If fileID is provided, only flushes relations for that file
+// If fileID is nil, flushes all buffered relations
+func (cg *CodeGraph) FlushRelations(ctx context.Context, fileID *int32) error {
+	if !cg.enableBatchWrites {
+		return nil // No-op if batch writes not enabled
+	}
+
+	if fileID != nil {
+		// Flush specific file's relations
+		buffers := cg.buffers[*fileID]
+		relations := buffers.Relations
+		if len(relations) == 0 {
+			return nil
+		}
+
+		cg.logger.Debug("Flushing relation buffer for file",
+			zap.Int32("file_id", *fileID),
+			zap.Int("count", len(relations)))
+
+		err := cg.BatchCreateRelations(ctx, relations)
+		if err != nil {
+			return fmt.Errorf("failed to flush relations for file %d: %w", *fileID, err)
+		}
+
+		// Clear the buffer for this file
+		buffers.Relations = make([]RelationSpec, 0, cg.batchSize)
+	} else {
+		cg.bufferMutex.Lock()
+		defer cg.bufferMutex.Unlock()
+
+		// Flush all files' relations
+		totalCount := 0
+		for fid := range cg.buffers {
+			totalCount += len(cg.buffers[fid].Relations)
+		}
+
+		if totalCount == 0 {
+			return nil
+		}
+
+		cg.logger.Debug("Flushing all relation buffers", zap.Int("count", totalCount))
+
+		// Collect all relations from all files
+		allRelations := make([]RelationSpec, 0, totalCount)
+		for _, buffers := range cg.buffers {
+			allRelations = append(allRelations, buffers.Relations...)
+		}
+
+		err := cg.BatchCreateRelations(ctx, allRelations)
+		if err != nil {
+			return fmt.Errorf("failed to flush all relations: %w", err)
+		}
+
+		// Clear all buffers
+		//cg.relationBuffers = make(map[int32][]RelationSpec)
+	}
+
+	return nil
+}
+
+// Flush writes buffered nodes and relations to the database
+// If fileID is provided, only flushes buffers for that file
+// If fileID is nil, flushes all buffers
 // IMPORTANT: Nodes are flushed BEFORE relations to ensure they exist in the database
-func (cg *CodeGraph) Flush(ctx context.Context) error {
+func (cg *CodeGraph) Flush(ctx context.Context, fileID *int32) error {
 	if !cg.enableBatchWrites {
 		return nil // No-op if batch writes not enabled
 	}
 
 	// Flush nodes first (required for relations to reference them)
-	if err := cg.FlushNodes(ctx); err != nil {
+	if err := cg.FlushNodes(ctx, fileID); err != nil {
 		return err
 	}
 
 	// Then flush relations
-	if err := cg.FlushRelations(ctx); err != nil {
+	if err := cg.FlushRelations(ctx, fileID); err != nil {
 		return err
 	}
 
@@ -537,22 +653,24 @@ func (cg *CodeGraph) flattenMetadata(metadata map[string]any, param map[string]a
 func (cg *CodeGraph) writeNode(ctx context.Context, node *ast.Node) error {
 	// If batch writes are enabled, buffer the node instead of writing immediately
 	if cg.enableBatchWrites {
-		cg.bufferMutex.Lock()
-		defer cg.bufferMutex.Unlock()
+		fileID := node.FileID
 
-		cg.nodeBuffer = append(cg.nodeBuffer, node)
+		buffers := cg.buffers[fileID]
 
-		// Flush if buffer is full
-		if len(cg.nodeBuffer) >= cg.batchSize {
-			cg.bufferMutex.Unlock() // Unlock before flush (FlushNodes will lock again)
-			err := cg.FlushNodes(ctx)
-			cg.bufferMutex.Lock() // Re-lock for defer to work correctly
-			if err != nil {
-				return err
+		if buffers != nil {
+			bufferSize := len(buffers.Nodes)
+			// Append node to buffer
+			buffers.Nodes = append(buffers.Nodes, node)
+			// Flush if this file's buffer is full
+			if bufferSize >= cg.batchSize {
+				err := cg.FlushNodes(ctx, &fileID)
+				if err != nil {
+					return err
+				}
 			}
-		}
 
-		return nil
+			return nil
+		}
 	}
 
 	// Original immediate write logic (when batch writes disabled)
@@ -677,6 +795,7 @@ type RelationSpec struct {
 	ChildID  ast.NodeID
 	Label    string
 	Metadata map[string]any
+	FileID   int32 // File ID for buffer management (can be from parent or child node)
 }
 
 // BatchCreateRelations creates multiple relationships in a single database transaction
@@ -824,34 +943,34 @@ func (cg *CodeGraph) readNodeByType(ctx context.Context, nodeID ast.NodeID, node
 }
 
 func (cg *CodeGraph) CreateRelation(ctx context.Context, parentNodeID, childNodeID ast.NodeID,
-	relationLabel string, metaData map[string]any) error {
+	relationLabel string, metaData map[string]any, fileID int32) error {
 
 	// If batch writes are enabled, buffer the relation instead of writing immediately
 	if cg.enableBatchWrites {
-		cg.bufferMutex.Lock()
-		defer cg.bufferMutex.Unlock()
+		buffers := cg.buffers[fileID]
 
-		relSpec := RelationSpec{
-			ParentID: parentNodeID,
-			ChildID:  childNodeID,
-			Label:    relationLabel,
-			Metadata: metaData,
-		}
-		cg.relationBuffer = append(cg.relationBuffer, relSpec)
-
-		// Flush if buffer is full
-		if len(cg.relationBuffer) >= cg.batchSize {
-			cg.bufferMutex.Unlock() // Unlock before flush (FlushRelations will lock again)
-			err := cg.FlushRelations(ctx)
-			cg.bufferMutex.Lock() // Re-lock for defer to work correctly
-			if err != nil {
-				return err
+		if buffers != nil {
+			relSpec := RelationSpec{
+				ParentID: parentNodeID,
+				ChildID:  childNodeID,
+				Label:    relationLabel,
+				Metadata: metaData,
+				FileID:   fileID,
 			}
+			buffers.Relations = append(buffers.Relations, relSpec)
+			bufferSize := len(buffers.Relations)
+
+			// Flush if this file's buffer is full
+			if bufferSize >= cg.batchSize {
+				err := cg.FlushRelations(ctx, &fileID)
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
 		}
-
-		return nil
 	}
-
 	// Original immediate write logic (when batch writes disabled)
 	parameters := map[string]any{
 		"parentId": int64(parentNodeID),
@@ -894,15 +1013,15 @@ func (cg *CodeGraph) CreateRelation(ctx context.Context, parentNodeID, childNode
 	return nil
 }
 
-func (cg *CodeGraph) CreateContainsRelation(ctx context.Context, parentNodeID, childNodeID ast.NodeID) error {
-	return cg.CreateRelation(ctx, parentNodeID, childNodeID, "CONTAINS", nil)
+func (cg *CodeGraph) CreateContainsRelation(ctx context.Context, parentNodeID, childNodeID ast.NodeID, fileID int32) error {
+	return cg.CreateRelation(ctx, parentNodeID, childNodeID, "CONTAINS", nil, fileID)
 }
 
-func (cg *CodeGraph) CreateHasFieldRelation(ctx context.Context, parentNodeID, childNodeID ast.NodeID) error {
-	return cg.CreateRelation(ctx, parentNodeID, childNodeID, "HAS_FIELD", nil)
+func (cg *CodeGraph) CreateHasFieldRelation(ctx context.Context, parentNodeID, childNodeID ast.NodeID, fileID int32) error {
+	return cg.CreateRelation(ctx, parentNodeID, childNodeID, "HAS_FIELD", nil, fileID)
 }
-func (cg *CodeGraph) CreateCallsRelation(ctx context.Context, callerNodeID, calleeNodeID ast.NodeID) error {
-	return cg.CreateRelation(ctx, callerNodeID, calleeNodeID, "CALLS", nil)
+func (cg *CodeGraph) CreateCallsRelation(ctx context.Context, callerNodeID, calleeNodeID ast.NodeID, fileID int32) error {
+	return cg.CreateRelation(ctx, callerNodeID, calleeNodeID, "CALLS", nil, fileID)
 }
 
 /*
@@ -911,66 +1030,66 @@ func (cg *CodeGraph) CreateContainedByRelation(ctx context.Context, parentNodeID
 }
 */
 
-func (cg *CodeGraph) CreateInheritsRelation(ctx context.Context, parentNodeID, childNodeID ast.NodeID) error {
-	return cg.CreateRelation(ctx, parentNodeID, childNodeID, "INHERITS", nil)
+func (cg *CodeGraph) CreateInheritsRelation(ctx context.Context, parentNodeID, childNodeID ast.NodeID, fileID int32) error {
+	return cg.CreateRelation(ctx, parentNodeID, childNodeID, "INHERITS", nil, fileID)
 }
 
-func (cg *CodeGraph) CreateCallsFunctionRelation(ctx context.Context, callerNodeID, calleeNodeID ast.NodeID) error {
-	return cg.CreateRelation(ctx, callerNodeID, calleeNodeID, "CALLS_FUNCTION", nil)
+func (cg *CodeGraph) CreateCallsFunctionRelation(ctx context.Context, callerNodeID, calleeNodeID ast.NodeID, fileID int32) error {
+	return cg.CreateRelation(ctx, callerNodeID, calleeNodeID, "CALLS_FUNCTION", nil, fileID)
 }
 
-func (cg *CodeGraph) CreateUsesVariableRelation(ctx context.Context, userNodeID, variableNodeID ast.NodeID) error {
-	return cg.CreateRelation(ctx, userNodeID, variableNodeID, "USES_VARIABLE", nil)
+func (cg *CodeGraph) CreateUsesVariableRelation(ctx context.Context, userNodeID, variableNodeID ast.NodeID, fileID int32) error {
+	return cg.CreateRelation(ctx, userNodeID, variableNodeID, "USES_VARIABLE", nil, fileID)
 }
 
-func (cg *CodeGraph) CreateImportsRelation(ctx context.Context, importerNodeID, importedNodeID ast.NodeID) error {
-	return cg.CreateRelation(ctx, importerNodeID, importedNodeID, "IMPORTS", nil)
+func (cg *CodeGraph) CreateImportsRelation(ctx context.Context, importerNodeID, importedNodeID ast.NodeID, fileID int32) error {
+	return cg.CreateRelation(ctx, importerNodeID, importedNodeID, "IMPORTS", nil, fileID)
 }
 
-func (cg *CodeGraph) CreateBodyRelation(ctx context.Context, parentNodeID, bodyNodeID ast.NodeID) error {
-	return cg.CreateRelation(ctx, parentNodeID, bodyNodeID, "BODY", nil)
+func (cg *CodeGraph) CreateBodyRelation(ctx context.Context, parentNodeID, bodyNodeID ast.NodeID, fileID int32) error {
+	return cg.CreateRelation(ctx, parentNodeID, bodyNodeID, "BODY", nil, fileID)
 }
 
-func (cg *CodeGraph) CreateAnnotationRelation(ctx context.Context, parentNodeID, annotationNodeID ast.NodeID) error {
-	return cg.CreateRelation(ctx, parentNodeID, annotationNodeID, "ANNOTATION", nil)
+func (cg *CodeGraph) CreateAnnotationRelation(ctx context.Context, parentNodeID, annotationNodeID ast.NodeID, fileID int32) error {
+	return cg.CreateRelation(ctx, parentNodeID, annotationNodeID, "ANNOTATION", nil, fileID)
 }
 
 func (cg *CodeGraph) CreateFunctionArgRelation(ctx context.Context, functionNodeID, argNodeID ast.NodeID,
-	position int) error {
+	position int, fileID int32) error {
 	return cg.CreateRelation(ctx, functionNodeID, argNodeID, "FUNCTION_ARG", map[string]any{
 		"position": position,
-	})
+	}, fileID)
 }
 
-func (cg *CodeGraph) CreateFromRelation(ctx context.Context, fromNodeID, toNodeID ast.NodeID) error {
-	return cg.CreateRelation(ctx, fromNodeID, toNodeID, "FROM", nil)
+func (cg *CodeGraph) CreateFromRelation(ctx context.Context, fromNodeID, toNodeID ast.NodeID, fileID int32) error {
+	return cg.CreateRelation(ctx, fromNodeID, toNodeID, "FROM", nil, fileID)
 }
 
-func (cg *CodeGraph) CreateDataFlowRelation(ctx context.Context, sourceNodeID, targetNodeID ast.NodeID) error {
-	return cg.CreateRelation(ctx, sourceNodeID, targetNodeID, "DATA_FLOW", nil)
+func (cg *CodeGraph) CreateDataFlowRelation(ctx context.Context, sourceNodeID, targetNodeID ast.NodeID, fileID int32) error {
+	return cg.CreateRelation(ctx, sourceNodeID, targetNodeID, "DATA_FLOW", nil, fileID)
 }
 
 func (cg *CodeGraph) CreateFunctionCallArgRelation(ctx context.Context, callNodeID, argNodeID ast.NodeID,
-	position int) error {
+	position int, fileID int32) error {
 	return cg.CreateRelation(ctx, callNodeID, argNodeID, "FUNCTION_CALL_ARG", map[string]any{
 		"position": position,
-	})
+	}, fileID)
 }
 
-func (cg *CodeGraph) CreateReturnsRelation(ctx context.Context, functionNodeID, returnNodeID ast.NodeID) error {
-	return cg.CreateRelation(ctx, functionNodeID, returnNodeID, "RETURNS", nil)
+func (cg *CodeGraph) CreateReturnsRelation(ctx context.Context, functionNodeID, returnNodeID ast.NodeID, fileID int32) error {
+	return cg.CreateRelation(ctx, functionNodeID, returnNodeID, "RETURNS", nil, fileID)
 }
 
-func (cg *CodeGraph) CreateAliasRelation(ctx context.Context, aliasNodeID, originalNodeID ast.NodeID) error {
-	return cg.CreateRelation(ctx, aliasNodeID, originalNodeID, "ALIAS", nil)
+func (cg *CodeGraph) CreateAliasRelation(ctx context.Context, aliasNodeID, originalNodeID ast.NodeID, fileID int32) error {
+	return cg.CreateRelation(ctx, aliasNodeID, originalNodeID, "ALIAS", nil, fileID)
 }
 
 func (cg *CodeGraph) CreateConditionalRelation(ctx context.Context, condNodeID,
-	branchNodeID ast.NodeID, position int, conditionID ast.NodeID) error {
+	branchNodeID ast.NodeID, position int, conditionID ast.NodeID, fileID int32) error {
 	return cg.CreateRelation(ctx, condNodeID, branchNodeID, "BRANCH", map[string]any{
 		"position":  position,
 		"condition": conditionID,
-	})
+	}, fileID)
 }
 
 /*func (cg *CodeGraph) GetOrCreateNextFileID(ctx context.Context) (int32, error) {
