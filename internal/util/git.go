@@ -14,7 +14,8 @@ import (
 type GitInfo struct {
 	HeadCommitSHA  string
 	HeadCommitMsg  string
-	ModifiedFiles  map[string]bool // Set of files modified compared to HEAD
+	ModifiedFiles  map[string]bool // Set of files modified compared to HEAD (absolute paths)
+	GitRootPath    string          // Absolute path to git repository root
 	IsGitRepo      bool
 }
 
@@ -33,10 +34,22 @@ func GetGitInfo(repoPath string) (*GitInfo, error) {
 	}
 	info.IsGitRepo = true
 
+	var output []byte
+	var err error
+
+	// Get the git root directory (absolute path)
+	cmd = exec.Command("git", "rev-parse", "--show-toplevel")
+	cmd.Dir = repoPath
+	output, err = cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get git root directory: %w", err)
+	}
+	info.GitRootPath = strings.TrimSpace(string(output))
+
 	// Get HEAD commit SHA
 	cmd = exec.Command("git", "rev-parse", "HEAD")
 	cmd.Dir = repoPath
-	output, err := cmd.Output()
+	output, err = cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get HEAD commit SHA: %w", err)
 	}
@@ -63,8 +76,8 @@ func GetGitInfo(repoPath string) (*GitInfo, error) {
 	modifiedFiles := strings.Split(strings.TrimSpace(string(output)), "\n")
 	for _, file := range modifiedFiles {
 		if file != "" {
-			// Convert to absolute path
-			absPath := filepath.Join(repoPath, file)
+			// Convert to absolute path using git root (not repoPath which might be a subdirectory)
+			absPath := filepath.Join(info.GitRootPath, file)
 			info.ModifiedFiles[absPath] = true
 		}
 	}
@@ -74,16 +87,17 @@ func GetGitInfo(repoPath string) (*GitInfo, error) {
 
 // GetFileContentFromGit retrieves file content from git HEAD
 // Returns error if file is not tracked by git
-func GetFileContentFromGit(repoPath, filePath string) ([]byte, error) {
-	// Get relative path from repo root
-	relPath, err := filepath.Rel(repoPath, filePath)
+// gitRootPath should be the git repository root (from GitInfo.GitRootPath)
+func GetFileContentFromGit(gitRootPath, filePath string) ([]byte, error) {
+	// Get relative path from git root
+	relPath, err := filepath.Rel(gitRootPath, filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get relative path: %w", err)
 	}
 
 	// Use git show to get file content from HEAD
 	cmd := exec.Command("git", "show", fmt.Sprintf("HEAD:%s", relPath))
-	cmd.Dir = repoPath
+	cmd.Dir = gitRootPath
 	output, err := cmd.Output()
 	if err != nil {
 		// Check if it's because the file doesn't exist in git
@@ -118,7 +132,8 @@ func ReadFileOptimized(repoPath, filePath string, useHead bool, gitInfo *GitInfo
 	}
 
 	// File is unmodified according to git diff, try to read from git HEAD
-	content, err := GetFileContentFromGit(repoPath, filePath)
+	// Use git root path (not repoPath which might be a subdirectory)
+	content, err := GetFileContentFromGit(gitInfo.GitRootPath, filePath)
 	if err != nil {
 		// If file is not tracked by git (e.g., in .gitignore or new untracked file),
 		// return error to skip processing
@@ -134,16 +149,25 @@ func ReadFileOptimized(repoPath, filePath string, useHead bool, gitInfo *GitInfo
 
 // GetLastCommitForFile gets the commit SHA of the last commit that modified a file
 func GetLastCommitForFile(repoPath, filePath string) (string, error) {
-	// Get relative path from repo root
-	relPath, err := filepath.Rel(repoPath, filePath)
+	// Get git root directory (in case repoPath is a subdirectory)
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get git root: %w", err)
+	}
+	gitRoot := strings.TrimSpace(string(output))
+
+	// Get relative path from git root (not repoPath)
+	relPath, err := filepath.Rel(gitRoot, filePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to get relative path: %w", err)
 	}
 
 	// Get the last commit SHA for this file
-	cmd := exec.Command("git", "log", "-1", "--pretty=%H", "--", relPath)
-	cmd.Dir = repoPath
-	output, err := cmd.Output()
+	cmd = exec.Command("git", "log", "-1", "--pretty=%H", "--", relPath)
+	cmd.Dir = gitRoot
+	output, err = cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get last commit for file: %w", err)
 	}
