@@ -157,13 +157,23 @@ func (cg *CodeGraph) FlushNodes(ctx context.Context, fileID *int32) error {
 	}
 
 	if fileID != nil {
+		cg.bufferMutex.Lock()
 		buffers := cg.buffers[*fileID]
-		// Flush specific file's nodes
-		nodes := buffers.Nodes
+		cg.bufferMutex.Unlock()
+
+		if buffers == nil {
+			return nil
+		}
+
+		nodes := make([]*ast.Node, len(buffers.Nodes))
+		copy(nodes, buffers.Nodes)
+
+		buffers.Nodes = make([]*ast.Node, 0, cg.batchSize)
+
 		if len(nodes) == 0 {
 			cg.logger.Debug("Flushing node buffer for file",
 				zap.Int32("file_id", *fileID),
-				zap.Int("count", len(nodes)))
+				zap.Int("count", 0))
 			return nil
 		}
 
@@ -175,11 +185,6 @@ func (cg *CodeGraph) FlushNodes(ctx context.Context, fileID *int32) error {
 		if err != nil {
 			return fmt.Errorf("failed to flush nodes for file %d: %w", *fileID, err)
 		}
-
-		// Clear the buffer for this file
-		//delete(cg.nodeBuffers, *fileID)
-		// Reset to empty slice
-		buffers.Nodes = make([]*ast.Node, 0, cg.batchSize)
 	} else {
 		cg.bufferMutex.Lock()
 		//cg.logger.Debug("Acquired bufferMutex lock in FlushNodes (flush all)")
@@ -227,13 +232,22 @@ func (cg *CodeGraph) FlushRelations(ctx context.Context, fileID *int32) error {
 	}
 
 	if fileID != nil {
-		// Flush specific file's relations
+		cg.bufferMutex.Lock()
 		buffers := cg.buffers[*fileID]
-		relations := buffers.Relations
+		cg.bufferMutex.Unlock()
+		if buffers == nil {
+			return nil
+		}
+
+		relations := make([]RelationSpec, len(buffers.Relations))
+		copy(relations, buffers.Relations)
+
+		buffers.Relations = make([]RelationSpec, 0, cg.batchSize)
+
 		if len(relations) == 0 {
 			cg.logger.Debug("Flushing relation buffer for file",
 				zap.Int32("file_id", *fileID),
-				zap.Int("count", len(relations)))
+				zap.Int("count", 0))
 			return nil
 		}
 
@@ -245,9 +259,6 @@ func (cg *CodeGraph) FlushRelations(ctx context.Context, fileID *int32) error {
 		if err != nil {
 			return fmt.Errorf("failed to flush relations for file %d: %w", *fileID, err)
 		}
-
-		// Clear the buffer for this file
-		buffers.Relations = make([]RelationSpec, 0, cg.batchSize)
 	} else {
 		cg.bufferMutex.Lock()
 		//cg.logger.Debug("Acquired bufferMutex lock in FlushRelations (flush all)")
@@ -717,15 +728,20 @@ func (cg *CodeGraph) writeNode(ctx context.Context, node *ast.Node) error {
 	if cg.enableBatchWrites {
 		fileID := node.FileID
 
+		// Only lock for map access - Go maps are not safe for concurrent reads/writes
+		cg.bufferMutex.Lock()
 		buffers := cg.buffers[fileID]
+		cg.bufferMutex.Unlock()
 
 		if buffers != nil {
-			bufferSize := len(buffers.Nodes)
-			// Append node to buffer
+			// These operations are safe without lock since each file is processed by a single thread
 			buffers.Nodes = append(buffers.Nodes, node)
+			shouldFlush := len(buffers.Nodes) >= cg.batchSize
+
 			// Flush if this file's buffer is full
-			if bufferSize >= cg.batchSize {
-				err := cg.FlushNodes(ctx, &fileID)
+			if shouldFlush {
+				// Flush both nodes and relations to maintain referential integrity
+				err := cg.Flush(ctx, &fileID)
 				if err != nil {
 					return err
 				}
@@ -1027,12 +1043,13 @@ func (cg *CodeGraph) CreateRelation(ctx context.Context, parentNodeID, childNode
 
 	// If batch writes are enabled, buffer the relation instead of writing immediately
 	if cg.enableBatchWrites {
-		// TODO this is flawed and needs to be rethought
-		// there is a concurrency with "buffers" reads not being locked but writes being locked
-		// but locking bufferMutex for every buffer read would be a performance bottleneck
+		// Only lock for map access - Go maps are not safe for concurrent reads/writes
+		cg.bufferMutex.Lock()
 		buffers := cg.buffers[fileID]
+		cg.bufferMutex.Unlock()
 
 		if buffers != nil {
+			// These operations are safe without lock since each file is processed by a single thread
 			relSpec := RelationSpec{
 				ParentID: parentNodeID,
 				ChildID:  childNodeID,
@@ -1041,11 +1058,13 @@ func (cg *CodeGraph) CreateRelation(ctx context.Context, parentNodeID, childNode
 				FileID:   fileID,
 			}
 			buffers.Relations = append(buffers.Relations, relSpec)
-			bufferSize := len(buffers.Relations)
+			shouldFlush := len(buffers.Relations) >= cg.batchSize
 
 			// Flush if this file's buffer is full
-			if bufferSize >= cg.batchSize {
-				err := cg.FlushRelations(ctx, &fileID)
+			if shouldFlush {
+				// Flush both nodes and relations to maintain referential integrity
+				// Nodes must be flushed first so relations can reference them
+				err := cg.Flush(ctx, &fileID)
 				if err != nil {
 					return err
 				}
