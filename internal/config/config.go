@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"regexp"
 
 	"gopkg.in/yaml.v2"
 )
@@ -110,6 +111,44 @@ type Config struct {
 	App           App                 `yaml:"app"`
 }
 
+// expandEnvVars expands environment variables in the given string
+// Supports formats: ${VAR}, $VAR, ${VAR:-default}
+func expandEnvVars(s string) string {
+	// Pattern for ${VAR:-default} or ${VAR}
+	reBraces := regexp.MustCompile(`\$\{([^}:]+)(:-([^}]*))?\}`)
+	s = reBraces.ReplaceAllStringFunc(s, func(match string) string {
+		parts := reBraces.FindStringSubmatch(match)
+		if len(parts) >= 2 {
+			varName := parts[1]
+			defaultValue := ""
+			if len(parts) >= 4 {
+				defaultValue = parts[3]
+			}
+			if val, ok := os.LookupEnv(varName); ok {
+				return val
+			}
+			return defaultValue
+		}
+		return match
+	})
+
+	// Pattern for $VAR (without braces)
+	reSimple := regexp.MustCompile(`\$([A-Za-z_][A-Za-z0-9_]*)`)
+	s = reSimple.ReplaceAllStringFunc(s, func(match string) string {
+		parts := reSimple.FindStringSubmatch(match)
+		if len(parts) >= 2 {
+			varName := parts[1]
+			if val, ok := os.LookupEnv(varName); ok {
+				return val
+			}
+			return match
+		}
+		return match
+	})
+
+	return s
+}
+
 func LoadConfig(appConfigPath string, sourceConfigPath string) (*Config, error) {
 	if _, err := os.Stat(appConfigPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("app config file does not exist: %s", appConfigPath)
@@ -127,6 +166,10 @@ func LoadConfig(appConfigPath string, sourceConfigPath string) (*Config, error) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to read source config file: %w", err)
 	}
+
+	// Expand environment variables in both config files
+	dataApp = []byte(expandEnvVars(string(dataApp)))
+	dataSource = []byte(expandEnvVars(string(dataSource)))
 
 	var configApp Config
 	if err := yaml.Unmarshal(dataApp, &configApp); err != nil {

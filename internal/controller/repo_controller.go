@@ -1,10 +1,15 @@
 package controller
 
 import (
+	"bot-go/internal/config"
+	"bot-go/internal/db"
 	"bot-go/internal/service/ngram"
 	"bot-go/internal/service/vector"
+	"bot-go/internal/util"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"bot-go/internal/model"
 	"bot-go/internal/service"
@@ -14,17 +19,23 @@ import (
 )
 
 type RepoController struct {
-	repoService  *service.RepoService
+	repoService *service.RepoService
 	chunkService *vector.CodeChunkService
 	ngramService *ngram.NGramService
+	processors   []FileProcessor
+	mysqlConn    *db.MySQLConnection
+	config       *config.Config
 	logger       *zap.Logger
 }
 
-func NewRepoController(repoService *service.RepoService, chunkService *vector.CodeChunkService, ngramService *ngram.NGramService, logger *zap.Logger) *RepoController {
+func NewRepoController(repoService *service.RepoService, chunkService *vector.CodeChunkService, ngramService *ngram.NGramService, processors []FileProcessor, mysqlConn *db.MySQLConnection, config *config.Config, logger *zap.Logger) *RepoController {
 	return &RepoController{
 		repoService:  repoService,
 		chunkService: chunkService,
 		ngramService: ngramService,
+		processors:   processors,
+		mysqlConn:    mysqlConn,
+		config:       config,
 		logger:       logger,
 	}
 }
@@ -753,6 +764,188 @@ func (rc *RepoController) CalculateZScore(c *gin.Context) {
 			Description: analysis.Interpretation.Description,
 			Percentile:  analysis.Interpretation.Percentile,
 		},
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// IndexFileRequest represents the request to index a single file
+type IndexFileRequest struct {
+	RepoName     string `json:"repo_name" binding:"required"`
+	RelativePath string `json:"relative_path" binding:"required"`
+}
+
+// IndexFileResponse represents the response after indexing a file
+type IndexFileResponse struct {
+	RepoName     string   `json:"repo_name"`
+	RelativePath string   `json:"relative_path"`
+	FileID       int32    `json:"file_id"`
+	FileSHA      string   `json:"file_sha"`
+	Processors   []string `json:"processors_run"`
+	Message      string   `json:"message"`
+}
+
+// IndexFile indexes a single file through all registered processors
+func (rc *RepoController) IndexFile(c *gin.Context) {
+	var request IndexFileRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		rc.logger.Error("Invalid request payload", zap.Error(err))
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Invalid request payload",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	// Check if processors are available
+	if len(rc.processors) == 0 {
+		rc.logger.Error("No processors available - processors may not be enabled")
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "No processors available. Ensure processors are enabled in configuration.",
+		})
+		return
+	}
+
+	// Check if MySQL is available (needed for file version tracking)
+	if rc.mysqlConn == nil {
+		rc.logger.Error("MySQL connection not available")
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"error": "MySQL connection not available. File indexing requires MySQL.",
+		})
+		return
+	}
+
+	ctx := c.Request.Context()
+
+	// Get repository configuration
+	repo, err := rc.config.GetRepository(request.RepoName)
+	if err != nil {
+		rc.logger.Error("Repository not found", zap.String("repo_name", request.RepoName), zap.Error(err))
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":   "Repository not found",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	// Build absolute file path
+	filePath := request.RelativePath
+	if !filepath.IsAbs(filePath) {
+		filePath = filepath.Join(repo.Path, request.RelativePath)
+	}
+
+	// Check if file exists
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		rc.logger.Error("File not found", zap.String("file_path", filePath))
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":   "File not found",
+			"details": fmt.Sprintf("File does not exist: %s", request.RelativePath),
+		})
+		return
+	}
+
+	// Read file content
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		rc.logger.Error("Failed to read file", zap.String("file_path", filePath), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to read file",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	// Calculate file SHA256
+	fileSHA := util.CalculateFileSHA256(content)
+
+	// Create FileVersionRepository for this repository
+	fileVersionRepo, err := db.NewFileVersionRepository(rc.mysqlConn.GetDB(), repo.Name, rc.logger)
+	if err != nil {
+		rc.logger.Error("Failed to create file version repository",
+			zap.String("repo_name", repo.Name),
+			zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to create file version repository",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	// Get or create FileID from MySQL
+	fileID, err := fileVersionRepo.GetOrCreateFileID(fileSHA, request.RelativePath, true, nil)
+	if err != nil {
+		rc.logger.Error("Failed to create file ID", zap.String("file_path", filePath), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to create file ID",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	// Create FileContext
+	fileCtx := &FileContext{
+		FileID:       fileID,
+		FilePath:     filePath,
+		RelativePath: request.RelativePath,
+		Content:      content,
+		FileSHA:      fileSHA,
+		CommitID:     nil,
+		Ephemeral:    true,
+	}
+
+	// Process through all processors
+	processorsRun := []string{}
+	for _, processor := range rc.processors {
+		rc.logger.Info("Processing file with processor",
+			zap.String("processor", processor.Name()),
+			zap.String("file_path", request.RelativePath),
+			zap.Int32("file_id", fileID))
+
+		err := processor.ProcessFile(ctx, repo, fileCtx)
+		if err != nil {
+			rc.logger.Error("Processor failed to process file",
+				zap.String("processor", processor.Name()),
+				zap.String("file_path", filePath),
+				zap.Error(err))
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   fmt.Sprintf("Processor '%s' failed", processor.Name()),
+				"details": err.Error(),
+			})
+			return
+		}
+
+		processorsRun = append(processorsRun, processor.Name())
+
+		// Update status to indicate this processor completed
+		processorStatus := fmt.Sprintf("%s_done", processor.Name())
+		if err := fileVersionRepo.UpdateStatus(fileID, processorStatus); err != nil {
+			rc.logger.Warn("Failed to update processor status",
+				zap.String("processor", processor.Name()),
+				zap.Int32("file_id", fileID),
+				zap.Error(err))
+		}
+	}
+
+	// Mark file as fully processed
+	if err := fileVersionRepo.UpdateStatus(fileID, "done"); err != nil {
+		rc.logger.Warn("Failed to update final status",
+			zap.Int32("file_id", fileID),
+			zap.Error(err))
+	}
+
+	rc.logger.Info("Successfully indexed file",
+		zap.String("repo_name", request.RepoName),
+		zap.String("relative_path", request.RelativePath),
+		zap.Int32("file_id", fileID),
+		zap.Strings("processors", processorsRun))
+
+	response := IndexFileResponse{
+		RepoName:     request.RepoName,
+		RelativePath: request.RelativePath,
+		FileID:       fileID,
+		FileSHA:      fileSHA,
+		Processors:   processorsRun,
+		Message:      fmt.Sprintf("File successfully indexed through %d processor(s)", len(processorsRun)),
 	}
 
 	c.JSON(http.StatusOK, response)

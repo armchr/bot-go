@@ -161,6 +161,9 @@ func (cg *CodeGraph) FlushNodes(ctx context.Context, fileID *int32) error {
 		// Flush specific file's nodes
 		nodes := buffers.Nodes
 		if len(nodes) == 0 {
+			cg.logger.Debug("Flushing node buffer for file",
+				zap.Int32("file_id", *fileID),
+				zap.Int("count", len(nodes)))
 			return nil
 		}
 
@@ -228,6 +231,9 @@ func (cg *CodeGraph) FlushRelations(ctx context.Context, fileID *int32) error {
 		buffers := cg.buffers[*fileID]
 		relations := buffers.Relations
 		if len(relations) == 0 {
+			cg.logger.Debug("Flushing relation buffer for file",
+				zap.Int32("file_id", *fileID),
+				zap.Int("count", len(relations)))
 			return nil
 		}
 
@@ -1021,6 +1027,9 @@ func (cg *CodeGraph) CreateRelation(ctx context.Context, parentNodeID, childNode
 
 	// If batch writes are enabled, buffer the relation instead of writing immediately
 	if cg.enableBatchWrites {
+		// TODO this is flawed and needs to be rethought
+		// there is a concurrency with "buffers" reads not being locked but writes being locked
+		// but locking bufferMutex for every buffer read would be a performance bottleneck
 		buffers := cg.buffers[fileID]
 
 		if buffers != nil {

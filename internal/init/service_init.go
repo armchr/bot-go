@@ -20,12 +20,12 @@ type ServiceContainer struct {
 	MySQLConn *db.MySQLConnection
 
 	// Core services
-	CodeGraph    *codegraph.CodeGraph
-	VectorDB     vector.VectorDatabase
+	CodeGraph      *codegraph.CodeGraph
+	VectorDB       vector.VectorDatabase
 	EmbeddingModel vector.EmbeddingModel
-	ChunkService *vector.CodeChunkService
-	NgramService *ngram.NGramService
-	RepoService  *service.RepoService
+	ChunkService   *vector.CodeChunkService
+	NgramService   *ngram.NGramService
+	RepoService    *service.RepoService
 
 	// Processors
 	Processors []controller.FileProcessor

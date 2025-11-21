@@ -178,7 +178,14 @@ func (rs *LspService) getFunctionCallsAndDefinitions(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("failed to get call hierarchy: %w", err)
 	}
+
 	calls := []model.FunctionDependency{}
+
+	// GetCallHierarchy can return (nil, nil) when no call hierarchy items are found
+	if inOrOutCalls == nil {
+		return calls, nil
+	}
+
 	for _, call := range inOrOutCalls.OutgoingCalls {
 		dependency := model.MapToFunctionDependency(call, lspClient)
 		calls = append(calls, dependency)
@@ -383,6 +390,12 @@ func (rs *LspService) getFunctionCallers(ctx context.Context,
 	}
 
 	callers := []model.FunctionDependency{}
+
+	// GetCallHierarchy can return (nil, nil) when no call hierarchy items are found
+	if inOrOutCalls == nil {
+		return callers, nil
+	}
+
 	for _, call := range inOrOutCalls.IncomingCalls {
 		// Convert incoming call to function dependency
 		callLocations := make([]base.Location, 0, 1)

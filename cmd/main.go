@@ -93,6 +93,11 @@ func main() {
 	}
 	defer container.Close(context.Background())
 
+	// Initialize processors and index builder
+	if err := container.InitProcessors(cfg); err != nil {
+		logger.Fatal("Failed to initialize processors", zap.Error(err))
+	}
+
 	// Start CodeGraph processing in background if enabled
 	/*
 		if container.CodeGraph != nil {
@@ -100,7 +105,7 @@ func main() {
 		}
 	*/
 
-	repoController := controller.NewRepoController(container.RepoService, container.ChunkService, container.NgramService, logger)
+	repoController := controller.NewRepoController(container.RepoService, container.ChunkService, container.NgramService, container.Processors, container.MySQLConn, cfg, logger)
 	mcpServer := mcp.NewCodeGraphServer(container.RepoService, cfg, logger)
 
 	router := handler.SetupRouter(repoController, mcpServer, logger)

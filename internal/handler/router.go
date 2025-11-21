@@ -27,6 +27,9 @@ func SetupRouter(repoController *controller.RepoController, mcpServer *mcp.CodeG
 		v1.POST("/processDirectory", repoController.ProcessDirectory)
 		v1.POST("/searchSimilarCode", repoController.SearchSimilarCode)
 
+		// Index building endpoints
+		v1.POST("/indexFile", repoController.IndexFile)
+
 		// N-gram endpoints
 		v1.POST("/processNGram", repoController.ProcessNGram)
 		v1.POST("/getNGramStats", repoController.GetNGramStats)
