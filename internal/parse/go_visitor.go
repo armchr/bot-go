@@ -75,6 +75,9 @@ func (gv *GoVisitor) TraverseNode(ctx context.Context, tsNode *tree_sitter.Node,
 		return gv.handleDeferStatement(ctx, tsNode, scopeID)
 	case "select_statement":
 		return gv.handleSelectStatement(ctx, tsNode, scopeID)
+	case "comment":
+		gv.translate.HandleComment(ctx, tsNode)
+		return ast.InvalidNodeID
 	default:
 		gv.translate.TraverseChildren(ctx, tsNode, scopeID)
 		return ast.InvalidNodeID

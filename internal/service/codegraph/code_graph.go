@@ -1808,3 +1808,71 @@ func (cg *CodeGraph) UpdateFakeClasses(ctx context.Context, fileID int32) error 
 	}
 	return nil
 }
+
+// CountDecisionPoints counts the number of decision points (Conditional and Loop nodes)
+// that are descendants of the given parent node (typically a Function node).
+//
+// This is used for calculating cyclomatic complexity:
+// Cyclomatic Complexity = 1 + CountDecisionPoints
+//
+// Decision points counted:
+//   - Conditional nodes (if, else if, switch statements)
+//   - Loop nodes (for, while, do-while loops)
+//
+// The query traverses all CONTAINS relationships recursively to find nested
+// decision points at any depth within the function body.
+func (cg *CodeGraph) CountDecisionPoints(ctx context.Context, parentNodeID ast.NodeID) (int, error) {
+	// Query to count all Conditional and Loop nodes that are descendants of the parent
+	// Uses variable-length path pattern to find nodes at any nesting depth
+	query := `
+		MATCH (parent {id: $parentId})-[:CONTAINS*]->(decision)
+		WHERE decision.nodeType = $conditionalType OR decision.nodeType = $loopType
+		RETURN count(decision) as decisionCount
+	`
+
+	parameters := map[string]any{
+		"parentId":        int64(parentNodeID),
+		"conditionalType": int64(ast.NodeTypeConditional),
+		"loopType":        int64(ast.NodeTypeLoop),
+	}
+
+	records, err := cg.db.ExecuteRead(ctx, query, parameters)
+	if err != nil {
+		cg.logger.Error("Failed to count decision points",
+			zap.Int64("parentId", int64(parentNodeID)),
+			zap.Error(err))
+		return 0, fmt.Errorf("failed to count decision points: %w", err)
+	}
+
+	if len(records) == 0 {
+		return 0, nil
+	}
+
+	count, ok := records[0]["decisionCount"]
+	if !ok {
+		return 0, nil
+	}
+
+	return int(cg.convertToInt64(count)), nil
+}
+
+// GetDecisionPoints returns all decision point nodes (Conditional and Loop)
+// that are descendants of the given parent node.
+//
+// This provides more detail than CountDecisionPoints by returning the actual nodes,
+// which can be useful for analysis or debugging.
+func (cg *CodeGraph) GetDecisionPoints(ctx context.Context, parentNodeID ast.NodeID) ([]*ast.Node, error) {
+	query := `
+		MATCH (parent {id: $parentId})-[:CONTAINS*]->(decision)
+		WHERE decision.nodeType = $conditionalType OR decision.nodeType = $loopType
+		RETURN decision
+	`
+
+	parameters := map[string]any{
+		"parentId":        int64(parentNodeID),
+		"conditionalType": int64(ast.NodeTypeConditional),
+		"loopType":        int64(ast.NodeTypeLoop),
+	}
+
+	return cg.readNodesByQuery(ctx, "decision", query, parameters)
+}

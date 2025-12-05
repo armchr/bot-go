@@ -45,6 +45,7 @@ type Scope struct {
 	Parent            *Scope
 	rhsVars           map[ast.NodeID]bool
 	notContainedNodes map[ast.NodeID]bool
+	numCommentLines   uint
 }
 
 func (s *Scope) AddSymbol(sym *Symbol) error {
@@ -112,6 +113,14 @@ func (s *Scope) Resolve(name string) *Symbol {
 		return s.Parent.Resolve(name)
 	}
 	return nil
+}
+
+func (s *Scope) NumCommentLines() uint {
+	return s.numCommentLines
+}
+
+func (s *Scope) AddCommentLines(num uint) {
+	s.numCommentLines += num
 }
 
 func NewScope(parent *Scope, isRhs bool) *Scope {
@@ -191,6 +200,10 @@ func (t *TranslateFromSyntaxTree) PopScope(ctx context.Context, closingScopeId a
 		return
 	}
 	parentScope := curScope.Parent
+
+	if parentScope != nil {
+		parentScope.AddCommentLines(curScope.NumCommentLines())
+	}
 
 	if closingScopeId == ast.InvalidNodeID {
 		// move all not contained nodes to parent scope
@@ -415,6 +428,10 @@ func (t *TranslateFromSyntaxTree) CreateFunction(ctx context.Context,
 			t.CreateContainsRelation(ctx, funcNode.ID, bodyNodeID, t.FileID)
 			t.CodeGraph.CreateBodyRelation(ctx, funcNode.ID, bodyNodeID, t.FileID)
 		}
+
+		t.CodeGraph.UpdateNodeMetaData(ctx, funcNode.ID, t.FileID, map[string]any{
+			"num_comment_lines": t.CurrentScope.NumCommentLines(),
+		})
 	}
 
 	return funcNode.ID
@@ -559,6 +576,10 @@ func (t *TranslateFromSyntaxTree) HandleClass(ctx context.Context,
 		}
 	}
 
+	t.CodeGraph.UpdateNodeMetaData(ctx, classNode.ID, t.FileID, map[string]any{
+		"num_comment_lines": t.CurrentScope.NumCommentLines(),
+	})
+
 	return classNode.ID
 }
 
@@ -646,6 +667,17 @@ func (t *TranslateFromSyntaxTree) HandleCall(ctx context.Context, name ast.NodeI
 	t.CurrentScope.AddRhsVar(callNode.ID)
 
 	return callNode.ID
+}
+
+func (t *TranslateFromSyntaxTree) HandleComment(ctx context.Context, commentNode *tree_sitter.Node) {
+	if commentNode == nil {
+		return
+	}
+	// find out the range of the comment
+	startPos := commentNode.StartPosition()
+	endPos := commentNode.EndPosition()
+	numLines := endPos.Row - startPos.Row + 1
+	t.CurrentScope.AddCommentLines(numLines)
 }
 
 func (t *TranslateFromSyntaxTree) HandleIdentifier(ctx context.Context, idNode *tree_sitter.Node, scopeID ast.NodeID) ast.NodeID {
