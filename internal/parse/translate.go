@@ -276,6 +276,36 @@ func (t *TranslateFromSyntaxTree) getNodeText(node *tree_sitter.Node, sourceCode
 	return string(sourceCode[node.StartByte():node.EndByte()])
 }
 
+func (t *TranslateFromSyntaxTree) GetAstNodeText(node *ast.Node) string {
+	if node == nil {
+		return ""
+	}
+	return t.getTextFromSourceAndRange(t.FileContent, node.Range)
+}
+
+func (t *TranslateFromSyntaxTree) getTextFromSourceAndRange(sourceCode []byte, rng base.Range) string {
+	// iterate over the source code to get the text in the range
+	// for every /n increment line count
+	var currentLine, currentChar int
+	var startByte, endByte int
+	for i := 0; i < len(sourceCode); i++ {
+		if currentLine == rng.Start.Line && currentChar == rng.Start.Character {
+			startByte = i
+		}
+		if currentLine == rng.End.Line && currentChar == rng.End.Character {
+			endByte = i
+			break
+		}
+		if sourceCode[i] == '\n' {
+			currentLine++
+			currentChar = 0
+		} else {
+			currentChar++
+		}
+	}
+	return string(sourceCode[startByte:endByte])
+}
+
 func (t *TranslateFromSyntaxTree) Chindren(node *tree_sitter.Node) []*tree_sitter.Node {
 	var children []*tree_sitter.Node
 	for i := uint(0); i < node.ChildCount(); i++ {
@@ -621,20 +651,26 @@ func (t *TranslateFromSyntaxTree) HandleRhs(ctx context.Context, rhs *tree_sitte
 	return t.CurrentScope.GetRhsVars(), nodeID
 }
 
-func (t *TranslateFromSyntaxTree) HandleCall(ctx context.Context, name ast.NodeID, args []*tree_sitter.Node, scopeID ast.NodeID, rng base.Range) ast.NodeID {
-	if name == ast.InvalidNodeID {
+func (t *TranslateFromSyntaxTree) HandleCall(ctx context.Context, nameID ast.NodeID, args []*tree_sitter.Node, scopeID ast.NodeID, rng base.Range) ast.NodeID {
+	if nameID == ast.InvalidNodeID {
 		return ast.InvalidNodeID
 	}
 
-	fnNameNode := t.Nodes[name]
+	fnNameNode := t.Nodes[nameID]
 	if fnNameNode == nil {
 		return ast.InvalidNodeID
 	}
+
+	fnName := fnNameNode.Name
+	if fnNameNode.MetaData["fake"] == true {
+		fnName = t.GetAstNodeText(fnNameNode)
+	}
+
 	callNode := t.NewNode(
-		ast.NodeTypeFunctionCall, fnNameNode.Name, rng, scopeID,
+		ast.NodeTypeFunctionCall, fnName, rng, scopeID,
 	)
 	callNode.MetaData = map[string]any{
-		"nameID": fnNameNode.Name,
+		"nameID": fnNameNode.ID,
 	}
 	t.CodeGraph.CreateFunctionCall(ctx, callNode)
 
