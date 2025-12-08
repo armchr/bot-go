@@ -32,15 +32,5 @@ func MatchIgnoreCaseLastSegment(name, nameInFile string, delim string) bool {
 }
 
 func RangeInRange(outer, inner Range) bool {
-	if inner.Start.Line < outer.Start.Line || inner.End.Line > outer.End.Line {
-		return false
-	}
-
-	if inner.Start.Line == outer.Start.Line && inner.Start.Character < outer.Start.Character {
-		return false
-	}
-	if inner.End.Line == outer.End.Line && inner.End.Character > outer.End.Character {
-		return false
-	}
-	return true
+	return outer.ContainsRange(&inner)
 }

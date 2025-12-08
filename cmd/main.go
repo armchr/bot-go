@@ -46,7 +46,8 @@ func main() {
 
 	//logger, err := zap.NewProduction()
 	cfgZap := zap.NewProductionConfig()
-	cfgZap.Level.SetLevel(zapcore.DebugLevel)
+	//cfgZap.Level.SetLevel(zapcore.DebugLevel)
+	cfgZap.Level.SetLevel(zapcore.InfoLevel)
 	cfgZap.OutputPaths = []string{"stdout", "all.log"}
 	logger, err := cfgZap.Build()
 	if err != nil {

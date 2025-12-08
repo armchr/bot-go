@@ -67,6 +67,8 @@ func (gv *GoVisitor) TraverseNode(ctx context.Context, tsNode *tree_sitter.Node,
 		return gv.handleConstDeclaration(ctx, tsNode, scopeID)
 	case "switch_statement":
 		return gv.handleSwitchStatement(ctx, tsNode, scopeID)
+	case "expression_switch_statement":
+		return gv.handleSwitchStatement(ctx, tsNode, scopeID)
 	case "type_switch_statement":
 		return gv.handleTypeSwitchStatement(ctx, tsNode, scopeID)
 	case "go_statement":
@@ -490,6 +492,38 @@ func (gv *GoVisitor) handleSwitchStatement(ctx context.Context, tsNode *tree_sit
 
 	return gv.translate.HandleConditional(ctx, tsNode, conditions, branches, scopeID)
 }
+
+/*
+func (gv *GoVisitor) handleExpressionSwitchStatement(ctx context.Context, tsNode *tree_sitter.Node, scopeID ast.NodeID) ast.NodeID {
+	var conditions []*tree_sitter.Node
+	var branches []*tree_sitter.Node
+
+	coreCondition := gv.translate.TreeChildByKind(tsNode, "selector_expression")
+
+	caseClauses := gv.translate.TreeChildrenByKind(tsNode, "expression_case")
+	defaultClauses := gv.translate.TreeChildrenByKind(tsNode, "default_case")
+
+	for _, clause := range caseClauses {
+		valueList := gv.translate.TreeChildByFieldName(clause, "value")
+		if valueList != nil {
+			conditions = append(conditions, valueList)
+		}
+		consequence := gv.translate.TreeChildByFieldName(clause, "consequence")
+		if consequence != nil {
+			branches = append(branches, consequence)
+		}
+	}
+
+	for _, clause := range defaultClauses {
+		consequence := gv.translate.TreeChildByFieldName(clause, "consequence")
+		if consequence != nil {
+			branches = append(branches, consequence)
+		}
+	}
+
+	return gv.translate.HandleConditional(ctx, tsNode, conditions, branches, scopeID)
+}
+*/
 
 func (gv *GoVisitor) handleTypeSwitchStatement(ctx context.Context, tsNode *tree_sitter.Node, scopeID ast.NodeID) ast.NodeID {
 	aliasNode := gv.translate.TreeChildByFieldName(tsNode, "alias")

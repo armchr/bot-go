@@ -11,6 +11,7 @@ import (
 	"bot-go/pkg/lsp/base"
 	"context"
 	"fmt"
+	"strings"
 
 	"go.uber.org/zap"
 )
@@ -224,6 +225,12 @@ func (pp *PostProcessor) createCallsRelations(ctx context.Context, repo *config.
 
 		if targetDefnID != ast.InvalidNodeID {
 			pp.codeGraph.CreateCallsFunctionRelation(ctx, call.ID, targetDefnID, call.FileID)
+			// log
+			pp.logger.Info("Created CALLS_FUNCTION relation",
+				zap.Int64("callNodeId", int64(call.ID)),
+				zap.String("callName", call.Name),
+				zap.Int64("targetFunctionId", int64(targetDefnID)),
+				zap.String("targetFunctionName", dep.Definition.Name))
 		}
 	}
 
@@ -249,5 +256,10 @@ func (pp *PostProcessor) getDependenciesFromCallGraph(callGraph *model.CallGraph
 */
 
 func (pp *PostProcessor) matchesFunctionCall(callNode *ast.Node, dependency *model.FunctionDependency) bool {
-	return callNode.Name == dependency.Name
+	if !dependency.IsIn(&callNode.Range) {
+		return false
+	}
+
+	// dependency name ends with call node name
+	return strings.HasSuffix(callNode.Name, dependency.Definition.Name)
 }

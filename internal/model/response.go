@@ -399,3 +399,12 @@ type ZScoreInterpretation struct {
 	Description string  `json:"description"`
 	Percentile  float64 `json:"percentile"` // Approximate percentile in corpus
 }
+
+func (fd *FunctionDependency) IsIn(rng *base.Range) bool {
+	for _, loc := range fd.CallLocations {
+		if rng.ContainsRange(&loc.Range) {
+			return true
+		}
+	}
+	return false
+}

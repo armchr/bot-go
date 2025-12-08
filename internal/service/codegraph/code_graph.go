@@ -938,7 +938,7 @@ func (cg *CodeGraph) readNodesByQuery(ctx context.Context, nodeVarName string, q
 	}
 
 	if len(records) == 0 {
-		return nil, fmt.Errorf("no nodes found for query %s", query)
+		return nil, nil
 	}
 
 	var results []*ast.Node
@@ -1750,7 +1750,7 @@ func (cg *CodeGraph) UpdateFakeClasses(ctx context.Context, fileID int32) error 
 
 	// find all fake classes in the given file scope
 	query := `
-		MATCH (c:Class {fileId: $fileScopeID, is_fake: true})
+		MATCH (c:Class {fileId: $fileID, is_fake: true})
 		RETURN c
 	`
 

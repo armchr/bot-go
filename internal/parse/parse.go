@@ -249,7 +249,7 @@ func (fp *FileParser) ParseAndTraverseWithContent(ctx context.Context, repo *con
 
 	if fp.Config.CodeGraph.PrintParseTree {
 		content := PrintSyntaxTree(ctx, rootNode, translator.FileContent)
-		fp.logger.Info("Syntax Tree:\n" + content)
+		fp.logger.Info("Syntax Tree: " + filePath + "\n" + content)
 	}
 	return nil
 }

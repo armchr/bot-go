@@ -324,6 +324,26 @@ type SymbolInformation struct {
 	Location Location `json:"location"`
 }
 
+func (r *Range) Contains(pos Position) bool {
+	if pos.Line < r.Start.Line || pos.Line > r.End.Line {
+		return false
+	}
+	if pos.Line == r.Start.Line && pos.Character < r.Start.Character {
+		return false
+	}
+	if pos.Line == r.End.Line && pos.Character > r.End.Character {
+		return false
+	}
+	return true
+}
+
+func (r *Range) ContainsRange(other *Range) bool {
+	if r.Contains(other.Start) && r.Contains(other.End) {
+		return true
+	}
+	return false
+}
+
 func MapToInitializeResult(data map[string]interface{}) (*InitializeResult, error) {
 	capabilities, ok := data["capabilities"].(map[string]interface{})
 	if !ok {

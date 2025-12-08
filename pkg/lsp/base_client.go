@@ -326,7 +326,7 @@ func (c *BaseClient) readLoop(wg *sync.WaitGroup) {
 				c.logger.Error("Failed to read LSP message content", zap.Int("expected_length", length), zap.Error(err))
 				continue
 			}
-			c.logger.Info("Received LSP message raw", zap.String("content", string(content)))
+			c.logger.Debug("Received LSP message raw", zap.String("content", string(content)))
 
 			var msg base.JSONRPCMessage
 			if err := json.Unmarshal(content, &msg); err != nil {
@@ -338,7 +338,7 @@ func (c *BaseClient) readLoop(wg *sync.WaitGroup) {
 				zap.Any("id", msg.ID), zap.Bool("is_response", msg.ID != nil && msg.Method == ""))
 
 			if msg.Method == "window/logMessage" {
-				c.logger.Info("Received LSP debug message", zap.String("response", string(content)))
+				c.logger.Debug("Received LSP debug message", zap.String("response", string(content)))
 			}
 
 			if msg.ID != nil {
