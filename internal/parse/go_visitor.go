@@ -77,6 +77,8 @@ func (gv *GoVisitor) TraverseNode(ctx context.Context, tsNode *tree_sitter.Node,
 		return gv.handleDeferStatement(ctx, tsNode, scopeID)
 	case "select_statement":
 		return gv.handleSelectStatement(ctx, tsNode, scopeID)
+	case "import_declaration":
+		return gv.handleImportDeclaration(ctx, tsNode, scopeID)
 	default:
 		gv.translate.TraverseChildren(ctx, tsNode, scopeID)
 		return ast.InvalidNodeID
@@ -314,6 +316,8 @@ func (gv *GoVisitor) handleCallExpression(ctx context.Context, tsNode *tree_sitt
 }
 
 func (gv *GoVisitor) handleSelectorExpression(ctx context.Context, tsNode *tree_sitter.Node, scopeID ast.NodeID) ast.NodeID {
+	debugName := PrintSyntaxTree(ctx, tsNode, gv.translate.FileContent)
+	gv.logger.Debug("Handling selector expression", zap.String("node_text", debugName))
 	operandNode := gv.translate.TreeChildByFieldName(tsNode, "operand")
 	fieldNode := gv.translate.TreeChildByFieldName(tsNode, "field")
 
@@ -612,4 +616,145 @@ func (gv *GoVisitor) handleSelectStatement(ctx context.Context, tsNode *tree_sit
 	}
 
 	return gv.translate.HandleConditional(ctx, tsNode, conditions, branches, scopeID)
+}
+
+// handleImportDeclaration processes Go import declarations
+// For imports like:
+//
+//	import "fmt"
+//	import (
+//	    "context"
+//	    "github.com/example/counter-app/pkg/counter"
+//	)
+//
+// Creates Import nodes and adds symbols to scope so they can be resolved
+// when used in selector expressions like `counter.New()` or `fmt.Println()`
+func (gv *GoVisitor) handleImportDeclaration(ctx context.Context, tsNode *tree_sitter.Node, scopeID ast.NodeID) ast.NodeID {
+	// Get import_spec_list for grouped imports, or single import_spec
+	importSpecList := gv.translate.TreeChildByKind(tsNode, "import_spec_list")
+
+	var importSpecs []*tree_sitter.Node
+	if importSpecList != nil {
+		// Grouped imports: import ( ... )
+		importSpecs = gv.translate.TreeChildrenByKind(importSpecList, "import_spec")
+	} else {
+		// Single import: import "fmt"
+		singleSpec := gv.translate.TreeChildByKind(tsNode, "import_spec")
+		if singleSpec != nil {
+			importSpecs = []*tree_sitter.Node{singleSpec}
+		}
+	}
+
+	for _, spec := range importSpecs {
+		gv.handleImportSpec(ctx, spec, scopeID)
+	}
+
+	return ast.InvalidNodeID
+}
+
+// handleImportSpec processes a single import spec
+// Handles:
+//   - Regular imports: "fmt" -> symbol name is "fmt"
+//   - Path imports: "github.com/example/pkg/counter" -> symbol name is "counter"
+//   - Aliased imports: alias "path/to/pkg" -> symbol name is "alias"
+//   - Dot imports: . "path/to/pkg" -> no symbol (imports into current namespace)
+//   - Blank imports: _ "path/to/pkg" -> no symbol (side effects only)
+func (gv *GoVisitor) handleImportSpec(ctx context.Context, tsNode *tree_sitter.Node, scopeID ast.NodeID) ast.NodeID {
+	// Check for alias (named import like: alias "path/to/pkg")
+	aliasNode := gv.translate.TreeChildByKind(tsNode, "package_identifier")
+	// Check for blank identifier or dot import
+	blankNode := gv.translate.TreeChildByKind(tsNode, "blank_identifier")
+	dotNode := gv.translate.TreeChildByKind(tsNode, "dot")
+
+	// Get the import path string
+	pathNode := gv.translate.TreeChildByKind(tsNode, "interpreted_string_literal")
+	if pathNode == nil {
+		return ast.InvalidNodeID
+	}
+
+	// Get the actual path content (without quotes)
+	pathContentNode := gv.translate.TreeChildByKind(pathNode, "interpreted_string_literal_content")
+	importPath := ""
+	if pathContentNode != nil {
+		importPath = gv.translate.String(pathContentNode)
+	} else {
+		// Fallback: get full string and strip quotes
+		importPath = gv.translate.String(pathNode)
+		if len(importPath) >= 2 {
+			importPath = importPath[1 : len(importPath)-1]
+		}
+	}
+
+	if importPath == "" {
+		return ast.InvalidNodeID
+	}
+
+	// Skip blank imports and dot imports - they don't create named symbols
+	if blankNode != nil || dotNode != nil {
+		return ast.InvalidNodeID
+	}
+
+	// Determine the symbol name
+	var symbolName string
+	if aliasNode != nil {
+		// Aliased import: use the alias
+		symbolName = gv.translate.String(aliasNode)
+	} else {
+		// Regular import: use the last component of the path
+		symbolName = gv.getPackageNameFromPath(importPath)
+	}
+
+	if symbolName == "" {
+		return ast.InvalidNodeID
+	}
+
+	// Create the Import node
+	importNode := ast.NewNode(
+		gv.translate.NextNodeID(),
+		ast.NodeTypeImport,
+		gv.translate.FileID,
+		symbolName,
+		gv.translate.ToRange(tsNode),
+		gv.translate.Version,
+		scopeID,
+	)
+
+	// Store the full import path in metadata
+	importNode.MetaData = map[string]any{
+		"importPath": importPath,
+	}
+
+	// Write node to code graph
+	gv.translate.CodeGraph.CreateImport(ctx, importNode)
+
+	// Add to current scope so it can be resolved when used
+	gv.translate.CurrentScope.AddSymbol(NewSymbol(importNode))
+
+	// Track in translator's node map
+	gv.translate.Nodes[importNode.ID] = importNode
+
+	return importNode.ID
+}
+
+// getPackageNameFromPath extracts the package name from an import path
+// For "github.com/example/pkg/counter", returns "counter"
+// For "fmt", returns "fmt"
+func (gv *GoVisitor) getPackageNameFromPath(importPath string) string {
+	if importPath == "" {
+		return ""
+	}
+
+	// Find the last "/" and take everything after it
+	lastSlash := -1
+	for i := len(importPath) - 1; i >= 0; i-- {
+		if importPath[i] == '/' {
+			lastSlash = i
+			break
+		}
+	}
+
+	if lastSlash == -1 {
+		return importPath
+	}
+	return importPath[lastSlash+1:]
 }

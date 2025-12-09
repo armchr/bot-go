@@ -418,6 +418,8 @@ func (cg *CodeGraph) getNodeLabel(nodeType ast.NodeType) string {
 		return "FileNumber"
 	case ast.NodeTypeLoop:
 		return "Loop"
+	case ast.NodeTypeImport:
+		return "Import"
 	default:
 		return "Node"
 	}
@@ -599,6 +601,17 @@ func (cg *CodeGraph) CreateField(ctx context.Context, node *ast.Node) error {
 
 func (cg *CodeGraph) ReadField(ctx context.Context, nodeID ast.NodeID) (*ast.Node, error) {
 	return cg.readNodeByType(ctx, nodeID, ast.NodeTypeField)
+}
+
+func (cg *CodeGraph) CreateImport(ctx context.Context, node *ast.Node) error {
+	if node.NodeType != ast.NodeTypeImport {
+		return fmt.Errorf("invalid node type: expected %d, got %d", ast.NodeTypeImport, node.NodeType)
+	}
+	return cg.writeNode(ctx, node)
+}
+
+func (cg *CodeGraph) ReadImport(ctx context.Context, nodeID ast.NodeID) (*ast.Node, error) {
+	return cg.readNodeByType(ctx, nodeID, ast.NodeTypeImport)
 }
 
 func (cg *CodeGraph) CreateFunctionCall(ctx context.Context, node *ast.Node) error {

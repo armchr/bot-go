@@ -19,6 +19,7 @@ const (
 	NodeTypeFunctionCall NodeType = 10
 	NodeTypeFileNumber   NodeType = 11
 	NodeTypeLoop         NodeType = 12
+	NodeTypeImport       NodeType = 13
 )
 
 type NodeID int64
