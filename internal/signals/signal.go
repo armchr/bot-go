@@ -121,7 +121,7 @@ type ClassInfo struct {
 	ContainingFile ast.NodeID
 
 	// Source code (optional, loaded on demand)
-	SourceCode string
+	//SourceCode string
 
 	// Precomputed helpers
 	accessorMethods map[ast.NodeID]bool // Cache of accessor method IDs
@@ -155,7 +155,7 @@ type MethodInfo struct {
 	Blocks       []ast.NodeID
 
 	// Source code (optional)
-	SourceCode string
+	//SourceCode string
 
 	// Flags
 	IsAccessor    bool
@@ -187,7 +187,7 @@ type FileInfo struct {
 	Functions []*MethodInfo // Top-level functions
 
 	// Source code
-	SourceCode string
+	// SourceCode string
 }
 
 // ParameterInfo contains information about a method parameter

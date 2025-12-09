@@ -331,9 +331,9 @@ func (d *AccessorDetector) isSimpleSetter(methodInfo *signals.MethodInfo) bool {
 // getMethodLOC returns the lines of code for a method
 func (d *AccessorDetector) getMethodLOC(methodInfo *signals.MethodInfo) int {
 	// Calculate LOC from Range if available
-	if methodInfo.Range.End.Line > methodInfo.Range.Start.Line {
+	/*if methodInfo.Range.End.Line > methodInfo.Range.Start.Line {
 		return int(methodInfo.Range.End.Line - methodInfo.Range.Start.Line + 1)
-	}
+	}*/
 
 	// If Range is not set, use the GetLOC method which may get it from code graph
 	return methodInfo.GetLOC()
