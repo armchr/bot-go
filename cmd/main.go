@@ -43,6 +43,7 @@ func main() {
 	flag.Var(&buildIndex, "build-index", "Repository name to build index for (can be specified multiple times)")
 	var useHead = flag.Bool("head", false, "Use git HEAD version instead of working directory (only valid with --build-index)")
 	var testDump = flag.String("test-dump", "", "Path to output file for dumping code graph after index building (only valid with --build-index)")
+	var clean = flag.Bool("clean", false, "Clean up all DB entries (MySQL, Neo4j, Qdrant) for the repository after processing (only valid with --build-index)")
 	flag.Parse()
 
 	//logger, err := zap.NewProduction()
@@ -78,13 +79,18 @@ func main() {
 	// Check if we're in CLI mode (build-index specified)
 	if len(buildIndex) > 0 {
 		logger.Info("Running in CLI mode - build-index")
-		BuildIndexCommand(cfg, logger, buildIndex, *useHead, *testDump)
+		BuildIndexCommand(cfg, logger, buildIndex, *useHead, *testDump, *clean)
 		return
 	}
 
 	// Validate --test-dump flag usage
 	if *testDump != "" {
 		logger.Fatal("--test-dump flag is only valid with --build-index")
+	}
+
+	// Validate --clean flag usage
+	if *clean {
+		logger.Fatal("--clean flag is only valid with --build-index")
 	}
 
 	// Validate --head flag usage
@@ -145,13 +151,14 @@ func LSPTest(cfg *config.Config, logger *zap.Logger) {
 	baseClient.TestCommand(ctx)
 }
 
-func BuildIndexCommand(cfg *config.Config, logger *zap.Logger, repoNames []string, useHead bool, testDumpPath string) {
+func BuildIndexCommand(cfg *config.Config, logger *zap.Logger, repoNames []string, useHead bool, testDumpPath string, clean bool) {
 	ctx := context.Background()
 
 	logger.Info("Build index command started",
 		zap.Strings("repositories", repoNames),
 		zap.Bool("use_head", useHead),
 		zap.String("test_dump_path", testDumpPath),
+		zap.Bool("clean", clean),
 		zap.Bool("code_graph_enabled", cfg.IndexBuilding.EnableCodeGraph),
 		zap.Bool("embeddings_enabled", cfg.IndexBuilding.EnableEmbeddings),
 		zap.Bool("ngram_enabled", cfg.IndexBuilding.EnableNgram))
@@ -242,6 +249,61 @@ func BuildIndexCommand(cfg *config.Config, logger *zap.Logger, repoNames []strin
 		}
 	} else if testDumpPath != "" && container.CodeGraph == nil {
 		logger.Warn("Cannot dump code graph: CodeGraph is not enabled")
+	}
+
+	// If clean is specified, clean up all DB entries for each repository
+	if clean {
+		logger.Info("Starting cleanup phase for all repositories")
+		for _, repoName := range repoNames {
+			logger.Info("Cleaning up repository data", zap.String("repo_name", repoName))
+
+			// Clean Neo4j (CodeGraph)
+			if container.CodeGraph != nil {
+				logger.Info("Cleaning Neo4j data", zap.String("repo_name", repoName))
+				if err := container.CodeGraph.CleanRepository(ctx, repoName); err != nil {
+					logger.Error("Failed to clean Neo4j data",
+						zap.String("repo_name", repoName),
+						zap.Error(err))
+				} else {
+					logger.Info("Neo4j data cleaned successfully", zap.String("repo_name", repoName))
+				}
+			}
+
+			// Clean Qdrant (Vector DB)
+			if container.VectorDB != nil {
+				logger.Info("Cleaning Qdrant collection", zap.String("repo_name", repoName))
+				// Use repo name as collection name (default convention)
+				if err := container.VectorDB.DeleteCollection(ctx, repoName); err != nil {
+					logger.Error("Failed to clean Qdrant collection",
+						zap.String("repo_name", repoName),
+						zap.Error(err))
+				} else {
+					logger.Info("Qdrant collection cleaned successfully", zap.String("repo_name", repoName))
+				}
+			}
+
+			// Clean MySQL (FileVersionRepository)
+			if container.MySQLConn != nil {
+				logger.Info("Cleaning MySQL table", zap.String("repo_name", repoName))
+				fileVersionRepo, err := db.NewFileVersionRepository(container.MySQLConn.GetDB(), repoName, logger)
+				if err != nil {
+					logger.Error("Failed to create file version repository for cleanup",
+						zap.String("repo_name", repoName),
+						zap.Error(err))
+				} else {
+					if err := fileVersionRepo.DropTable(); err != nil {
+						logger.Error("Failed to drop MySQL table",
+							zap.String("repo_name", repoName),
+							zap.Error(err))
+					} else {
+						logger.Info("MySQL table dropped successfully", zap.String("repo_name", repoName))
+					}
+				}
+			}
+
+			logger.Info("Cleanup completed for repository", zap.String("repo_name", repoName))
+		}
+		logger.Info("Cleanup phase completed for all repositories")
 	}
 
 	logger.Info("Build index command completed")

@@ -146,6 +146,76 @@ go run cmd/main.go -app=config/app.yaml -source=config/source.yaml -test
 curl http://localhost:8181/api/v1/health
 ```
 
+### CLI Index Building
+
+Bot-Go can be run in CLI mode to build indexes for repositories without starting the server. This is useful for batch processing, CI/CD pipelines, and testing.
+
+```bash
+# Build index for a single repository
+./bin/bot-go -app=config/app.yaml -source=config/source.yaml --build-index=my-repo
+
+# Build index for multiple repositories
+./bin/bot-go -app=config/app.yaml -source=config/source.yaml \
+    --build-index=repo1 --build-index=repo2
+
+# Build index from git HEAD (faster, reads from git object store)
+./bin/bot-go -app=config/app.yaml -source=config/source.yaml \
+    --build-index=my-repo --head
+
+# Using make shortcuts
+make build-index REPO=my-repo
+make build-index-head REPO=my-repo
+```
+
+**CLI Options for `--build-index` mode:**
+
+| Option | Description |
+|--------|-------------|
+| `--build-index=<repo>` | Repository name to build index for (can be specified multiple times) |
+| `--head` | Read files from git HEAD instead of working directory (faster for clean repos) |
+| `--test-dump=<path>` | Dump the code graph to a file after processing (for testing/debugging) |
+| `--clean` | Clean up all DB entries after processing (MySQL, Neo4j, Qdrant) |
+
+#### Test Dump (`--test-dump`)
+
+Dumps the complete code graph to a text file after all processing stages complete. Useful for testing and debugging the code graph structure.
+
+```bash
+# Build index and dump the resulting code graph
+./bin/bot-go -app=config/app.yaml -source=config/source.yaml \
+    --build-index=my-repo --test-dump=/tmp/graph-dump.txt
+```
+
+The dump file contains:
+- All FileScopes sorted alphabetically by path
+- All nodes within each file (functions, classes, variables, etc.) with their IDs, names, ranges, and metadata
+- All relationships between nodes in the format `(fromID) -[TYPE]-> (toID)`
+- Node and relationship counts per file
+
+#### Cleanup (`--clean`)
+
+Removes all data for the specified repositories from all databases after processing. This runs **after** test-dump if both are specified.
+
+```bash
+# Build index, then clean up all data
+./bin/bot-go -app=config/app.yaml -source=config/source.yaml \
+    --build-index=my-repo --clean
+
+# Build index, dump for inspection, then clean up
+./bin/bot-go -app=config/app.yaml -source=config/source.yaml \
+    --build-index=my-repo --test-dump=/tmp/dump.txt --clean
+```
+
+**Cleanup targets:**
+- **Neo4j**: Deletes all FileScope nodes and their descendants (functions, classes, etc.) for the repository
+- **Qdrant**: Deletes the vector collection for the repository
+- **MySQL**: Drops the file_versions table for the repository
+
+**Execution order:**
+1. Index building (process all files through enabled processors)
+2. Test dump (if `--test-dump` specified)
+3. Cleanup (if `--clean` specified)
+
 ### Running with Docker
 
 ```bash

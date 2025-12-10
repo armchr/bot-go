@@ -387,3 +387,21 @@ func (r *FileVersionRepository) GetStats() (total int64, ephemeral int64, commit
 	err = r.db.QueryRow(query).Scan(&total, &ephemeral, &committed)
 	return
 }
+
+// DropTable drops the file_versions table for this repository.
+// This permanently deletes all file version tracking data for the repository.
+func (r *FileVersionRepository) DropTable() error {
+	tableName := r.tableName()
+
+	r.logger.Info("Dropping file versions table", zap.String("table", tableName))
+
+	query := fmt.Sprintf(`DROP TABLE IF EXISTS %s`, tableName)
+
+	_, err := r.db.Exec(query)
+	if err != nil {
+		return fmt.Errorf("failed to drop table %s: %w", tableName, err)
+	}
+
+	r.logger.Info("File versions table dropped successfully", zap.String("table", tableName))
+	return nil
+}

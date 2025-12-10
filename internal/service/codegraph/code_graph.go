@@ -2117,3 +2117,53 @@ func (cg *CodeGraph) getAllRelationsInFile(ctx context.Context, fileID int32) ([
 
 	return relations, nil
 }
+
+// CleanRepository deletes all nodes and relationships for a specific repository from Neo4j.
+// This includes all FileScopes and their descendant nodes (functions, classes, variables, etc.)
+func (cg *CodeGraph) CleanRepository(ctx context.Context, repoName string) error {
+	cg.logger.Info("Starting Neo4j cleanup for repository", zap.String("repo", repoName))
+
+	// First, get count of nodes to be deleted for logging
+	countQuery := `
+		MATCH (fs:FileScope {repo: $repo})
+		OPTIONAL MATCH (fs)-[:CONTAINS*]->(descendant)
+		RETURN count(DISTINCT fs) as fileScopeCount, count(DISTINCT descendant) as descendantCount
+	`
+	countResult, err := cg.db.ExecuteReadSingle(ctx, countQuery, map[string]any{"repo": repoName})
+	if err != nil {
+		cg.logger.Warn("Failed to count nodes for deletion", zap.Error(err))
+	} else {
+		fsCount := cg.convertToInt64(countResult["fileScopeCount"])
+		descCount := cg.convertToInt64(countResult["descendantCount"])
+		cg.logger.Info("Nodes to be deleted",
+			zap.String("repo", repoName),
+			zap.Int64("file_scopes", fsCount),
+			zap.Int64("descendants", descCount))
+	}
+
+	// Delete all descendant nodes first (nodes connected via CONTAINS relationships)
+	// Using DETACH DELETE to also remove all relationships
+	deleteDescendantsQuery := `
+		MATCH (fs:FileScope {repo: $repo})-[:CONTAINS*]->(descendant)
+		DETACH DELETE descendant
+	`
+	_, err = cg.db.ExecuteWrite(ctx, deleteDescendantsQuery, map[string]any{"repo": repoName})
+	if err != nil {
+		return fmt.Errorf("failed to delete descendant nodes: %w", err)
+	}
+	cg.logger.Debug("Deleted descendant nodes", zap.String("repo", repoName))
+
+	// Now delete the FileScope nodes themselves
+	deleteFileScopesQuery := `
+		MATCH (fs:FileScope {repo: $repo})
+		DETACH DELETE fs
+	`
+	_, err = cg.db.ExecuteWrite(ctx, deleteFileScopesQuery, map[string]any{"repo": repoName})
+	if err != nil {
+		return fmt.Errorf("failed to delete FileScope nodes: %w", err)
+	}
+	cg.logger.Debug("Deleted FileScope nodes", zap.String("repo", repoName))
+
+	cg.logger.Info("Neo4j cleanup completed for repository", zap.String("repo", repoName))
+	return nil
+}
