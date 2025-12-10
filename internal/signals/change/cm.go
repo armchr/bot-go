@@ -9,11 +9,11 @@ import (
 
 // CMSignal computes Changing Methods (method co-change frequency)
 type CMSignal struct {
-	gitAnalyzer *util.GitAnalyzer
+	gitAnalyzer util.GitAnalyzer
 }
 
 // NewCMSignal creates a new CM signal
-func NewCMSignal(gitAnalyzer *util.GitAnalyzer) *CMSignal {
+func NewCMSignal(gitAnalyzer util.GitAnalyzer) *CMSignal {
 	return &CMSignal{
 		gitAnalyzer: gitAnalyzer,
 	}

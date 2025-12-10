@@ -9,11 +9,11 @@ import (
 
 // CCSignal computes Changing Classes (co-change frequency)
 type CCSignal struct {
-	gitAnalyzer *util.GitAnalyzer
+	gitAnalyzer util.GitAnalyzer
 }
 
 // NewCCSignal creates a new CC signal
-func NewCCSignal(gitAnalyzer *util.GitAnalyzer) *CCSignal {
+func NewCCSignal(gitAnalyzer util.GitAnalyzer) *CCSignal {
 	return &CCSignal{
 		gitAnalyzer: gitAnalyzer,
 	}

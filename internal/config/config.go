@@ -93,6 +93,20 @@ type CodeGraphConfig struct {
 	PrintParseTree    bool `yaml:"print_parse_tree"`
 }
 
+// GitAnalysisMode defines how git analysis is performed
+type GitAnalysisMode string
+
+const (
+	GitAnalysisModeOnDemand   GitAnalysisMode = "ondemand"
+	GitAnalysisModePrecompute GitAnalysisMode = "precompute"
+)
+
+type GitAnalysisConfig struct {
+	Enabled         bool            `yaml:"enabled"`
+	Mode            GitAnalysisMode `yaml:"mode"`              // "ondemand" or "precompute"
+	LookbackCommits int             `yaml:"lookback_commits"`  // How many commits to analyze (default: 1000)
+}
+
 func (c *McpConfig) GetAddress() string {
 	//return fmt.Sprintf("%s:%d", c.Host, c.Port) //, c.Path)
 	return fmt.Sprintf(":%d", c.Port) //, c.Path)
@@ -110,6 +124,7 @@ type Config struct {
 	IndexBuilding IndexBuildingConfig `yaml:"index_building"`
 	MySQL         MySQLConfig         `yaml:"mysql"`
 	CodeGraph     CodeGraphConfig     `yaml:"code_graph"`
+	GitAnalysis   GitAnalysisConfig   `yaml:"git_analysis"`
 	App           App                 `yaml:"app"`
 }
 

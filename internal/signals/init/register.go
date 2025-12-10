@@ -1,6 +1,7 @@
 package signalinit
 
 import (
+	"bot-go/internal/config"
 	"bot-go/internal/signals"
 	"bot-go/internal/signals/change"
 	"bot-go/internal/signals/cohesion"
@@ -66,14 +67,19 @@ func RegisterDefaultSignals(registry *signals.SignalRegistry) {
 }
 
 // RegisterChangeSignals registers change history signals (requires git analyzer)
-func RegisterChangeSignals(registry *signals.SignalRegistry, gitAnalyzer *util.GitAnalyzer) {
+func RegisterChangeSignals(registry *signals.SignalRegistry, gitAnalyzer util.GitAnalyzer) {
 	registry.Register(change.NewCCSignal(gitAnalyzer))
 	registry.Register(change.NewCMSignal(gitAnalyzer))
 }
 
 // RegisterAllSignals registers all signals including change history
-func RegisterAllSignals(registry *signals.SignalRegistry, repoPath string) {
+// gitConfig can be nil to use default on-demand mode
+func RegisterAllSignals(registry *signals.SignalRegistry, repoPath string, gitConfig *config.GitAnalysisConfig) error {
 	RegisterDefaultSignals(registry)
-	gitAnalyzer := util.NewGitAnalyzer(repoPath)
+	gitAnalyzer, err := util.NewGitAnalyzer(repoPath, gitConfig)
+	if err != nil {
+		return err
+	}
 	RegisterChangeSignals(registry, gitAnalyzer)
+	return nil
 }
