@@ -6,12 +6,15 @@
 #   ./run_test.sh <repo-name> [options]
 #
 # Options:
-#   --build-index    Build the code graph index for the repository
-#   --test-dump      Dump the code graph for testing/debugging
-#   --clean          Clean up the index from different DBs
-#   --head           Use git HEAD mode for faster indexing (with --build-index)
-#   --all            Run all options: build-index, test-dump, clean
+#   --build-index    Build the code graph index only
+#   --test-dump      Build index and dump the code graph for testing/debugging
+#   --clean          Build index and clean up the index from different DBs
+#   --head           Use git HEAD mode for faster indexing
+#   --all            Build index with test-dump and clean
 #   --help           Show this help message
+#
+# Note: --build-index is always required and is automatically included with
+#       --test-dump, --clean, and --all options.
 #
 # Examples:
 #   ./run_test.sh python-calculator --build-index
@@ -54,12 +57,15 @@ show_help() {
     done
     echo ""
     echo "Options:"
-    echo "  --build-index    Build the code graph index for the repository"
-    echo "  --test-dump      Dump the code graph for testing/debugging"
-    echo "  --clean          Clean up the index from different DBs"
-    echo "  --head           Use git HEAD mode for faster indexing (with --build-index)"
-    echo "  --all            Run all options: build-index, test-dump, clean"
+    echo "  --build-index    Build the code graph index only"
+    echo "  --test-dump      Build index and dump the code graph for testing/debugging"
+    echo "  --clean          Build index and clean up the index from different DBs"
+    echo "  --head           Use git HEAD mode for faster indexing"
+    echo "  --all            Build index with test-dump and clean"
     echo "  --help           Show this help message"
+    echo ""
+    echo "Note: --build-index is always required and is automatically included with"
+    echo "      --test-dump, --clean, and --all options."
     echo ""
     echo "Examples:"
     echo "  $0 python-calculator --build-index"
@@ -178,42 +184,44 @@ main() {
     echo -e "${BLUE}Running tests for: ${GREEN}$REPO_NAME${NC}"
     echo -e "${BLUE}========================================${NC}"
 
-    # Build index
-    if $DO_BUILD_INDEX; then
-        echo ""
-        echo -e "${YELLOW}>>> Building index for $REPO_NAME${NC}"
+    # Build the command - build-index is always required
+    CMD="$BOT_GO_BIN -app=$APP_CONFIG -source=$SOURCE_CONFIG --build-index=$REPO_NAME"
 
-        BUILD_CMD="$BOT_GO_BIN -app=$APP_CONFIG -source=$SOURCE_CONFIG -build-index=$REPO_NAME"
-        if $USE_HEAD; then
-            BUILD_CMD="$BUILD_CMD --head"
-        fi
-
-        echo -e "${BLUE}Command: $BUILD_CMD${NC}"
-        eval "$BUILD_CMD"
-        echo -e "${GREEN}<<< Index build complete${NC}"
+    # Add --head if requested
+    if $USE_HEAD; then
+        CMD="$CMD --head"
     fi
 
-    # Test dump
+    # Add --test-dump if requested
     if $DO_TEST_DUMP; then
-        echo ""
-        echo -e "${YELLOW}>>> Dumping code graph for $REPO_NAME${NC}"
-
-        DUMP_CMD="$BOT_GO_BIN -app=$APP_CONFIG -source=$SOURCE_CONFIG -test-dump=$REPO_NAME"
-        echo -e "${BLUE}Command: $DUMP_CMD${NC}"
-        eval "$DUMP_CMD"
-        echo -e "${GREEN}<<< Test dump complete${NC}"
+        CMD="$CMD --test-dump=$REPO_NAME"
     fi
 
-    # Clean
+    # Add --clean if requested
     if $DO_CLEAN; then
-        echo ""
-        echo -e "${YELLOW}>>> Cleaning index for $REPO_NAME${NC}"
-
-        CLEAN_CMD="$BOT_GO_BIN -app=$APP_CONFIG -source=$SOURCE_CONFIG -test-dump=$REPO_NAME --clean"
-        echo -e "${BLUE}Command: $CLEAN_CMD${NC}"
-        eval "$CLEAN_CMD"
-        echo -e "${GREEN}<<< Clean complete${NC}"
+        CMD="$CMD --clean"
     fi
+
+    # Show what we're doing
+    echo ""
+    echo -e "${YELLOW}>>> Running bot-go for $REPO_NAME${NC}"
+    echo -e "${BLUE}Options:${NC}"
+    echo -e "  Build index: ${GREEN}yes${NC}"
+    if $USE_HEAD; then
+        echo -e "  Git HEAD mode: ${GREEN}yes${NC}"
+    fi
+    if $DO_TEST_DUMP; then
+        echo -e "  Test dump: ${GREEN}yes${NC}"
+    fi
+    if $DO_CLEAN; then
+        echo -e "  Clean: ${GREEN}yes${NC}"
+    fi
+    echo ""
+    echo -e "${BLUE}Command: $CMD${NC}"
+    echo ""
+
+    # Execute the command
+    eval "$CMD"
 
     echo ""
     echo -e "${GREEN}========================================${NC}"
