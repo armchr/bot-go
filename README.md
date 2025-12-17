@@ -275,23 +275,32 @@ GET /api/v1/health
 {"status": "healthy"}
 ```
 
-### Process Repository (LSP)
+### Build Index
 
 ```bash
-POST /api/v1/processRepo
+POST /api/v1/buildIndex
 Content-Type: application/json
 
 {
-  "repo_name": "my-go-project"
+  "repo_name": "my-go-project",
+  "use_head": true
 }
 ```
 
-Processes repository using LSP to extract files and functions.
+Builds indexes for a repository using all registered processors (CodeGraph, Embeddings, N-gram). This is the HTTP equivalent of the `--build-index` CLI command.
 
 **Parameters**:
 - `repo_name` (required): Repository name from `source.yaml`
+- `use_head` (optional): Use git HEAD version instead of working directory (default: false)
 
-**Note**: Current implementation returns minimal data. Used for initialization.
+**Response**:
+```json
+{
+  "repo_name": "my-go-project",
+  "status": "completed",
+  "message": "Repository indexed successfully"
+}
+```
 
 ### Get Function Dependencies
 
@@ -495,90 +504,42 @@ Bot-Go provides a clean, high-level API for querying the code graph at `/codeapi
 
 ### Reader Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/codeapi/v1/repos` | List all repositories |
-| POST | `/codeapi/v1/files` | List files (with pagination) |
-| POST | `/codeapi/v1/classes` | List classes (with pagination) |
-| POST | `/codeapi/v1/methods` | List methods (with pagination) |
-| POST | `/codeapi/v1/functions` | List top-level functions |
-| POST | `/codeapi/v1/classes/find` | Find classes by filter |
-| POST | `/codeapi/v1/methods/find` | Find methods by filter |
-| POST | `/codeapi/v1/class` | Get class by ID |
-| POST | `/codeapi/v1/method` | Get method by ID |
-| POST | `/codeapi/v1/class/methods` | Get methods of a class |
-| POST | `/codeapi/v1/class/fields` | Get fields of a class |
+#### GET `/codeapi/v1/repos` - List all repositories
 
-### Analyzer Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/codeapi/v1/callgraph` | Get call graph (by ID or name) |
-| POST | `/codeapi/v1/callers` | Get callers of a function |
-| POST | `/codeapi/v1/callees` | Get callees of a function |
-| POST | `/codeapi/v1/data/dependents` | Get data dependents |
-| POST | `/codeapi/v1/data/sources` | Get data sources |
-| POST | `/codeapi/v1/impact` | Impact analysis |
-| POST | `/codeapi/v1/inheritance` | Get inheritance tree |
-| POST | `/codeapi/v1/field/accessors` | Get field accessors |
-
-### Raw Cypher Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/codeapi/v1/cypher` | Execute read-only Cypher |
-| POST | `/codeapi/v1/cypher/write` | Execute write Cypher |
-
-### Example Usage
-
-```bash
-# List all repositories
-curl http://localhost:8181/codeapi/v1/repos
-
-# List classes with pagination
-curl -X POST http://localhost:8181/codeapi/v1/classes \
-  -H "Content-Type: application/json" \
-  -d '{"repo_name": "my-project", "limit": 10, "offset": 0}'
-
-# Get call graph for a function
-curl -X POST http://localhost:8181/codeapi/v1/callgraph \
-  -H "Content-Type: application/json" \
-  -d '{
-    "repo_name": "my-project",
-    "function_name": "ProcessFile",
-    "direction": "both",
-    "max_depth": 3
-  }'
-
-# Find methods containing "Process"
-curl -X POST http://localhost:8181/codeapi/v1/methods/find \
-  -H "Content-Type: application/json" \
-  -d '{"repo_name": "my-project", "name_like": "Process", "limit": 20}'
-
-# Execute raw Cypher query
-curl -X POST http://localhost:8181/codeapi/v1/cypher \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "MATCH (f:Function)-[:CALLS_FUNCTION*1..2]->(t) WHERE f.name = $name RETURN t.name",
-    "params": {"name": "main"}
-  }'
-
-# Impact analysis
-curl -X POST http://localhost:8181/codeapi/v1/impact \
-  -H "Content-Type: application/json" \
-  -d '{
-    "repo_name": "my-project",
-    "name": "ProcessFile",
-    "node_type": "function",
-    "include_call_graph": true,
-    "include_data_flow": true,
-    "max_depth": 3
-  }'
+**Response:**
+```json
+{"repos": ["bot-go", "my-project"]}
 ```
 
-### Response Examples
+---
 
-**List Classes Response:**
+#### POST `/codeapi/v1/files` - List files with pagination
+
+**Input:**
+```json
+{"repo_name": "bot-go", "limit": 10, "offset": 0}
+```
+
+**Output:**
+```json
+{
+  "files": [
+    {"id": 1, "path": "cmd/main.go", "repo_name": "bot-go", "language": "go"},
+    {"id": 2, "path": "internal/service/code_graph.go", "repo_name": "bot-go", "language": "go"}
+  ]
+}
+```
+
+---
+
+#### POST `/codeapi/v1/classes` - List classes with pagination
+
+**Input:**
+```json
+{"repo_name": "bot-go", "limit": 10, "offset": 0}
+```
+
+**Output:**
 ```json
 {
   "classes": [
@@ -593,16 +554,195 @@ curl -X POST http://localhost:8181/codeapi/v1/impact \
 }
 ```
 
-**Call Graph Response:**
+---
+
+#### POST `/codeapi/v1/methods` - List methods with pagination
+
+**Input:**
+```json
+{"repo_name": "bot-go", "limit": 10, "offset": 0}
+```
+
+**Output:**
+```json
+{
+  "methods": [
+    {
+      "id": 12350,
+      "name": "WriteNode",
+      "class_name": "CodeGraph",
+      "file_path": "internal/service/code_graph.go",
+      "signature": "func (cg *CodeGraph) WriteNode(ctx context.Context, node *ASTNode) error"
+    }
+  ]
+}
+```
+
+---
+
+#### POST `/codeapi/v1/functions` - List top-level functions
+
+**Input:**
+```json
+{"repo_name": "bot-go", "limit": 10, "offset": 0}
+```
+
+**Output:**
+```json
+{
+  "functions": [
+    {
+      "id": 12400,
+      "name": "main",
+      "file_path": "cmd/main.go",
+      "signature": "func main()"
+    }
+  ]
+}
+```
+
+---
+
+#### POST `/codeapi/v1/classes/find` - Find classes by filter
+
+**Input:**
+```json
+{"repo_name": "bot-go", "name_like": "Graph", "limit": 20}
+```
+
+**Output:**
+```json
+{
+  "classes": [
+    {"id": 12345, "name": "CodeGraph", "file_path": "internal/service/code_graph.go"},
+    {"id": 12400, "name": "GraphDatabase", "file_path": "internal/service/graph_db.go"}
+  ]
+}
+```
+
+---
+
+#### POST `/codeapi/v1/methods/find` - Find methods by filter
+
+**Input:**
+```json
+{"repo_name": "bot-go", "name_like": "Process", "class_name": "IndexBuilder", "limit": 20}
+```
+
+**Output:**
+```json
+{
+  "methods": [
+    {"id": 12500, "name": "ProcessFile", "class_name": "IndexBuilder"},
+    {"id": 12501, "name": "ProcessRepository", "class_name": "IndexBuilder"}
+  ]
+}
+```
+
+---
+
+#### POST `/codeapi/v1/class` - Get class by ID
+
+**Input:**
+```json
+{"repo_name": "bot-go", "class_id": 12345}
+```
+
+**Output:**
+```json
+{
+  "class": {
+    "id": 12345,
+    "name": "CodeGraph",
+    "file_path": "internal/service/code_graph.go",
+    "file_id": 1,
+    "range": {"start": {"line": 10, "character": 0}, "end": {"line": 100, "character": 1}}
+  }
+}
+```
+
+---
+
+#### POST `/codeapi/v1/method` - Get method by ID
+
+**Input:**
+```json
+{"repo_name": "bot-go", "method_id": 12350}
+```
+
+**Output:**
+```json
+{
+  "method": {
+    "id": 12350,
+    "name": "WriteNode",
+    "class_name": "CodeGraph",
+    "file_path": "internal/service/code_graph.go",
+    "signature": "func (cg *CodeGraph) WriteNode(ctx context.Context, node *ASTNode) error"
+  }
+}
+```
+
+---
+
+#### POST `/codeapi/v1/class/methods` - Get methods of a class
+
+**Input:**
+```json
+{"repo_name": "bot-go", "class_id": 12345}
+```
+
+**Output:**
+```json
+{
+  "methods": [
+    {"id": 12350, "name": "WriteNode", "class_name": "CodeGraph"},
+    {"id": 12351, "name": "ReadNodes", "class_name": "CodeGraph"},
+    {"id": 12352, "name": "ExecuteRead", "class_name": "CodeGraph"}
+  ]
+}
+```
+
+---
+
+#### POST `/codeapi/v1/class/fields` - Get fields of a class
+
+**Input:**
+```json
+{"repo_name": "bot-go", "class_id": 12345}
+```
+
+**Output:**
+```json
+{
+  "fields": [
+    {"id": 12360, "name": "db", "class_name": "CodeGraph", "type": "GraphDatabase"},
+    {"id": 12361, "name": "logger", "class_name": "CodeGraph", "type": "*zap.Logger"}
+  ]
+}
+```
+
+---
+
+### Analyzer Endpoints
+
+#### POST `/codeapi/v1/callgraph` - Get call graph
+
+**Input:**
+```json
+{
+  "repo_name": "bot-go",
+  "function_name": "ProcessFile",
+  "direction": "both",
+  "max_depth": 3
+}
+```
+
+**Output:**
 ```json
 {
   "call_graph": {
-    "root": {
-      "id": 12345,
-      "name": "ProcessFile",
-      "file_path": "internal/controller/processor.go",
-      "depth": 0
-    },
+    "root": {"id": 12345, "name": "ProcessFile", "file_path": "internal/controller/processor.go", "depth": 0},
     "nodes": {
       "12345": {"id": 12345, "name": "ProcessFile", "depth": 0},
       "12346": {"id": 12346, "name": "ParseAST", "depth": 1},
@@ -612,10 +752,199 @@ curl -X POST http://localhost:8181/codeapi/v1/impact \
       {"caller_id": 12345, "callee_id": 12346},
       {"caller_id": 12346, "callee_id": 12347}
     ],
-    "direction": "outgoing",
+    "direction": "both",
     "max_depth": 3,
     "truncated": false
   }
+}
+```
+
+---
+
+#### POST `/codeapi/v1/callers` - Get callers of a function
+
+**Input:**
+```json
+{"repo_name": "bot-go", "function_id": 12346, "max_depth": 2}
+```
+
+**Output:**
+```json
+{
+  "callers": [
+    {"id": 12345, "name": "ProcessFile", "file_path": "internal/controller/processor.go", "depth": 1},
+    {"id": 12300, "name": "BuildIndex", "file_path": "internal/controller/index_builder.go", "depth": 2}
+  ]
+}
+```
+
+---
+
+#### POST `/codeapi/v1/callees` - Get callees of a function
+
+**Input:**
+```json
+{"repo_name": "bot-go", "function_id": 12345, "max_depth": 2}
+```
+
+**Output:**
+```json
+{
+  "callees": [
+    {"id": 12346, "name": "ParseAST", "file_path": "internal/parse/parser.go", "depth": 1},
+    {"id": 12347, "name": "WriteNode", "file_path": "internal/service/code_graph.go", "depth": 2}
+  ]
+}
+```
+
+---
+
+#### POST `/codeapi/v1/data/dependents` - Get data dependents
+
+**Input:**
+```json
+{"repo_name": "bot-go", "variable_name": "config", "max_depth": 2}
+```
+
+**Output:**
+```json
+{
+  "dependents": [
+    {"id": 12500, "name": "repoService", "type": "variable", "file_path": "cmd/main.go"},
+    {"id": 12501, "name": "indexBuilder", "type": "variable", "file_path": "cmd/main.go"}
+  ]
+}
+```
+
+---
+
+#### POST `/codeapi/v1/data/sources` - Get data sources
+
+**Input:**
+```json
+{"repo_name": "bot-go", "variable_name": "result", "max_depth": 2}
+```
+
+**Output:**
+```json
+{
+  "sources": [
+    {"id": 12600, "name": "ExecuteRead", "type": "function", "file_path": "internal/service/code_graph.go"}
+  ]
+}
+```
+
+---
+
+#### POST `/codeapi/v1/impact` - Impact analysis
+
+**Input:**
+```json
+{
+  "repo_name": "bot-go",
+  "name": "WriteNode",
+  "node_type": "function",
+  "include_call_graph": true,
+  "include_data_flow": true,
+  "max_depth": 3
+}
+```
+
+**Output:**
+```json
+{
+  "impact": {
+    "target": {"id": 12347, "name": "WriteNode", "type": "function"},
+    "callers": [
+      {"id": 12346, "name": "ParseAST", "depth": 1},
+      {"id": 12345, "name": "ProcessFile", "depth": 2}
+    ],
+    "affected_files": ["internal/parse/parser.go", "internal/controller/processor.go"],
+    "total_affected": 5
+  }
+}
+```
+
+---
+
+#### POST `/codeapi/v1/inheritance` - Get inheritance tree
+
+**Input:**
+```json
+{"repo_name": "bot-go", "class_id": 12345, "direction": "both"}
+```
+
+**Output:**
+```json
+{
+  "inheritance": {
+    "class": {"id": 12345, "name": "Neo4jDatabase"},
+    "parents": [{"id": 12300, "name": "GraphDatabase"}],
+    "children": []
+  }
+}
+```
+
+---
+
+#### POST `/codeapi/v1/field/accessors` - Get field accessors
+
+**Input:**
+```json
+{"repo_name": "bot-go", "field_id": 12360}
+```
+
+**Output:**
+```json
+{
+  "accessors": [
+    {"id": 12350, "name": "WriteNode", "access_type": "read"},
+    {"id": 12351, "name": "ReadNodes", "access_type": "read"},
+    {"id": 12370, "name": "SetDatabase", "access_type": "write"}
+  ]
+}
+```
+
+---
+
+### Raw Cypher Endpoints
+
+#### POST `/codeapi/v1/cypher` - Execute read-only Cypher
+
+**Input:**
+```json
+{
+  "query": "MATCH (f:Function)-[:CALLS_FUNCTION]->(t:Function) WHERE f.name = $name RETURN t.name, t.file_path LIMIT 10",
+  "params": {"name": "main"}
+}
+```
+
+**Output:**
+```json
+{
+  "results": [
+    {"t.name": "LoadConfig", "t.file_path": "internal/config/config.go"},
+    {"t.name": "NewServiceContainer", "t.file_path": "internal/init/container.go"}
+  ]
+}
+```
+
+---
+
+#### POST `/codeapi/v1/cypher/write` - Execute write Cypher
+
+**Input:**
+```json
+{
+  "query": "MATCH (f:Function {name: $name}) SET f.analyzed = true RETURN f.name",
+  "params": {"name": "ProcessFile"}
+}
+```
+
+**Output:**
+```json
+{
+  "results": [{"f.name": "ProcessFile"}]
 }
 ```
 

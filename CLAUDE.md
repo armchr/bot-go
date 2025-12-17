@@ -185,14 +185,17 @@ Configuration loading: `config.LoadConfig(appConfigPath, sourceConfigPath)` merg
 
 REST API (port from app.yaml, default 8181):
 
-**Health & Repository Processing:**
+**Health & Index Building:**
 - `GET /api/v1/health` - Health check endpoint
   - Returns: `{"status": "healthy"}`
 
-- `POST /api/v1/processRepo` - Process repository using LSP
-  - Parameters: `{"repo_name": "string"}`
-  - Returns: Files and functions extracted from the repository
-  - Note: Currently returns null (implementation commented out)
+- `POST /api/v1/buildIndex` - Build indexes for a repository
+  - Parameters: `{"repo_name": "string", "use_head": bool}`
+  - `repo_name` (required): Repository name from source.yaml
+  - `use_head` (optional): Use git HEAD version instead of working directory (default: false)
+  - Returns: `{"repo_name": "string", "status": "completed", "message": "string"}`
+  - Builds all indexes (CodeGraph, Embeddings, N-gram) using registered processors
+  - HTTP equivalent of the `--build-index` CLI command
 
 **Function Analysis:**
 - `POST /api/v1/functionDependencies` - Get function call dependencies using LSP
