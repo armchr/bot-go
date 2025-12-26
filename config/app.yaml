@@ -11,7 +11,7 @@ app:
 neo4j:
   uri: "bolt://localhost:7687"
   username: "neo4j"
-  password: "neo4j"
+  password: "armchair"
 mysql:
     host: "localhost"      # or your MySQL host
     port: 3306
