@@ -170,16 +170,18 @@ func (ib *IndexBuilder) processFiles(ctx context.Context, repo *config.Repositor
 		}
 
 		// Check if file was already fully processed (same SHA/commit, status="done")
-		// This optimization skips reprocessing unchanged files
-		existingFile, err := ib.fileVersionRepo.GetFileByID(fileCtx.FileID)
-		if err == nil && existingFile.Status == "done" {
-			// File already fully processed with this exact SHA and commit
-			ib.logger.Debug("Skipping already processed file",
-				zap.String("path", fileCtx.RelativePath),
-				zap.Int32("file_id", fileCtx.FileID),
-				zap.String("sha", fileCtx.FileSHA),
-				zap.String("status", existingFile.Status))
-			return nil // Skip this file
+		// This optimization only applies in HEAD mode; for normal runs we always reprocess
+		if useHead {
+			existingFile, err := ib.fileVersionRepo.GetFileByID(fileCtx.FileID)
+			if err == nil && existingFile.Status == "done" {
+				// File already fully processed with this exact SHA and commit
+				ib.logger.Debug("Skipping already processed file",
+					zap.String("path", fileCtx.RelativePath),
+					zap.Int32("file_id", fileCtx.FileID),
+					zap.String("sha", fileCtx.FileSHA),
+					zap.String("status", existingFile.Status))
+				return nil // Skip this file in HEAD mode
+			}
 		}
 
 		// Process the file through all processors in parallel

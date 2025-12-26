@@ -225,10 +225,25 @@ func (fp *FileParser) ParseAndTraverseWithContent(ctx context.Context, repo *con
 	}
 	translator.Visitor = visitor
 
+	// Determine file scope name based on language
+	// For Python, use the file name (without extension) since module nodes don't have names
+	// For other languages, try to get name from root node (e.g., package name for Go)
+	fileScopeName := translator.GetTreeNodeName(rootNode)
+	if fileScopeName == "" {
+		// Fallback to file name without extension
+		baseName := filepath.Base(filePath)
+		ext := filepath.Ext(baseName)
+		if ext != "" {
+			fileScopeName = baseName[:len(baseName)-len(ext)]
+		} else {
+			fileScopeName = baseName
+		}
+	}
+
 	fileScope := ast.NewNode(
 		ast.NodeID(fileID), ast.NodeTypeFileScope,
 		translator.FileID,
-		translator.GetTreeNodeName(rootNode),
+		fileScopeName,
 		translator.ToRange(rootNode),
 		translator.Version, ast.InvalidNodeID,
 	)
