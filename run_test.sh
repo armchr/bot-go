@@ -57,12 +57,14 @@ show_help() {
     done
     echo ""
     echo "Options:"
-    echo "  --build-index    Build the code graph index only"
-    echo "  --test-dump      Build index and dump the code graph for testing/debugging"
-    echo "  --clean          Build index and clean up the index from different DBs"
-    echo "  --head           Use git HEAD mode for faster indexing"
-    echo "  --all            Build index with test-dump and clean"
-    echo "  --help           Show this help message"
+    echo "  --build-index           Build the code graph index only"
+    echo "  --test-dump [path]      Build index and dump the code graph for testing/debugging"
+    echo "                          Optional path argument: --test-dump /path/to/dump.txt"
+    echo "                          If no path provided, uses repository name as default"
+    echo "  --clean                 Build index and clean up the index from different DBs"
+    echo "  --head                  Use git HEAD mode for faster indexing"
+    echo "  --all                   Build index with test-dump and clean"
+    echo "  --help                  Show this help message"
     echo ""
     echo "Note: --build-index is always required and is automatically included with"
     echo "      --test-dump, --clean, and --all options."
@@ -71,6 +73,7 @@ show_help() {
     echo "  $0 python-calculator --build-index"
     echo "  $0 go-calculator --build-index --head"
     echo "  $0 typescript-calculator --test-dump"
+    echo "  $0 python-calculator --test-dump /tmp/dump.txt"
     echo "  $0 java-modern-calculator --clean"
     echo "  $0 java8-calculator --all"
 }
@@ -135,6 +138,7 @@ main() {
     # Parse options
     DO_BUILD_INDEX=false
     DO_TEST_DUMP=false
+    TEST_DUMP_PATH=""
     DO_CLEAN=false
     USE_HEAD=false
 
@@ -144,9 +148,22 @@ main() {
                 DO_BUILD_INDEX=true
                 shift
                 ;;
+            --test-dump=*)
+                # Handle --test-dump=path format
+                DO_TEST_DUMP=true
+                TEST_DUMP_PATH="${1#*=}"
+                shift
+                ;;
             --test-dump)
                 DO_TEST_DUMP=true
-                shift
+                # Check if next argument is a path (doesn't start with --)
+                if [[ $# -gt 1 ]] && [[ ! "$2" =~ ^-- ]]; then
+                    TEST_DUMP_PATH="$2"
+                    shift 2
+                else
+                    # No path provided, will use default (repo name)
+                    shift
+                fi
                 ;;
             --clean)
                 DO_CLEAN=true
@@ -194,7 +211,12 @@ main() {
 
     # Add --test-dump if requested
     if $DO_TEST_DUMP; then
-        CMD="$CMD --test-dump=$REPO_NAME"
+        if [[ -n "$TEST_DUMP_PATH" ]]; then
+            CMD="$CMD --test-dump=$TEST_DUMP_PATH"
+        else
+            # Default: use /tmp folder
+            CMD="$CMD --test-dump=/tmp/${REPO_NAME}-graph-dump.txt"
+        fi
     fi
 
     # Add --clean if requested
@@ -211,7 +233,11 @@ main() {
         echo -e "  Git HEAD mode: ${GREEN}yes${NC}"
     fi
     if $DO_TEST_DUMP; then
-        echo -e "  Test dump: ${GREEN}yes${NC}"
+        if [[ -n "$TEST_DUMP_PATH" ]]; then
+            echo -e "  Test dump: ${GREEN}yes${NC} (path: $TEST_DUMP_PATH)"
+        else
+            echo -e "  Test dump: ${GREEN}yes${NC}"
+        fi
     fi
     if $DO_CLEAN; then
         echo -e "  Clean: ${GREEN}yes${NC}"
