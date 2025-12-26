@@ -715,8 +715,15 @@ func (t *TranslateFromSyntaxTree) HandleIdentifier(ctx context.Context, idNode *
 }
 
 func (t *TranslateFromSyntaxTree) HandleConditional(ctx context.Context, conditionalNode *tree_sitter.Node, conditions []*tree_sitter.Node, branches []*tree_sitter.Node, scopeID ast.NodeID) ast.NodeID {
+	// Use conditionalNode for range if conditions is empty (e.g., select with only default case)
+	var rangeNode *tree_sitter.Node
+	if len(conditions) > 0 {
+		rangeNode = conditions[0]
+	} else {
+		rangeNode = conditionalNode
+	}
 	condNode := t.NewNode(
-		ast.NodeTypeConditional, "", t.ToRange(conditions[0]), scopeID,
+		ast.NodeTypeConditional, "", t.ToRange(rangeNode), scopeID,
 	)
 	t.CodeGraph.CreateConditional(ctx, condNode)
 

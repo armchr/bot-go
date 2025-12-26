@@ -283,10 +283,16 @@ func (c *BaseClient) readLoop(wg *sync.WaitGroup) {
 				} else {
 					c.logger.Error("Process state is nil but got EOF")
 				}
+				// Notify all pending requests that the process is dead
+				c.notifyPendingRequestsOfFailure(fmt.Errorf("language server process terminated"))
 			} else if strings.Contains(err.Error(), "file already closed") {
 				c.logger.Debug("LSP read loop terminated normally - file closed")
+				// Notify pending requests of normal shutdown
+				c.notifyPendingRequestsOfFailure(fmt.Errorf("language server connection closed"))
 			} else {
 				c.logger.Error("LSP read loop terminated with unexpected error", zap.Error(err))
+				// Notify pending requests of error
+				c.notifyPendingRequestsOfFailure(err)
 			}
 			break
 		}
@@ -357,6 +363,34 @@ func (c *BaseClient) readLoop(wg *sync.WaitGroup) {
 			}
 		}
 	}
+}
+
+// notifyPendingRequestsOfFailure notifies all pending requests that the language server process has failed
+// This unblocks any sendRequest calls that are waiting for responses
+func (c *BaseClient) notifyPendingRequestsOfFailure(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	errorMsg := &base.JSONRPCMessage{
+		JSONRPC: "2.0",
+		Error: &base.RPCError{
+			Code:    -32000,
+			Message: err.Error(),
+		},
+	}
+
+	// Send error to all pending requests
+	for id, ch := range c.pendingReqs {
+		select {
+		case ch <- errorMsg:
+			c.logger.Debug("Notified pending request of failure", zap.Int("id", id))
+		default:
+			c.logger.Warn("Failed to notify pending request - channel full", zap.Int("id", id))
+		}
+	}
+
+	// Clear pending requests
+	c.pendingReqs = make(map[int]chan *base.JSONRPCMessage)
 }
 
 func (c *BaseClient) Close() error {
